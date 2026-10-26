@@ -30,7 +30,7 @@ sys.path.insert(0, str(ROOT))
 # Load .env
 env_path = ROOT / ".env"
 if env_path.exists():
-    for line in env_path.read_text().splitlines():
+    for line in env_path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if line and not line.startswith("#") and "=" in line:
             key, _, val = line.partition("=")
@@ -128,7 +128,7 @@ def parse_iso(ts: str) -> datetime | None:
 def load_profile() -> str:
     """Load the local candidate profile used for AI scoring."""
     if PROFILE_PATH.exists():
-        return PROFILE_PATH.read_text().strip()
+        return PROFILE_PATH.read_text(encoding="utf-8").strip()
     print(f"ERROR: {PROFILE_PATH} not found")
     print(f"Create it with: cp {PROFILE_EXAMPLE_PATH} {PROFILE_PATH}")
     print("Then edit it with your real skills, target roles, visa needs, and preferences.")
@@ -187,7 +187,7 @@ def load_json_store() -> dict:
         print(f"ERROR: {JSON_STORE_PATH} not found")
         sys.exit(1)
     try:
-        return json.loads(JSON_STORE_PATH.read_text())
+        return json.loads(JSON_STORE_PATH.read_text(encoding="utf-8"))
     except json.JSONDecodeError as e:
         print(f"ERROR: Could not parse {JSON_STORE_PATH}: {e}")
         sys.exit(1)

@@ -41,5 +41,5 @@ def save_job_description(job: JobPosting, output_dir: Path) -> Path:
         f"\n{'='*60}\n\n"
         f"{job.description}"
     )
-    jd_path.write_text(content)
+    jd_path.write_text(content, encoding="utf-8")
     return jd_path

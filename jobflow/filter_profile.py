@@ -27,6 +27,7 @@ from dataclasses import dataclass, field, fields
 # filter.py imports FilterProfile/DEFAULT_PROFILE at the *bottom* of its module
 # (after these constants are defined), so there is no import cycle.
 from .filter import (
+    DISQUALIFYING_PHRASES,
     STACK_CATEGORIES,
     SYNERGY_COMBOS,
     POOR_FIT_PATTERNS,
@@ -55,6 +56,10 @@ class FilterProfile:
     # Hard-reject gates that depend on the person, not the product
     requires_sponsorship: bool = True
     us_only: bool = True
+    # Phrases that hard-reject a job when requires_sponsorship is set. Per-user
+    # because "must be authorized to work in the US" disqualifies some visa
+    # situations but not others (e.g. F-1 OPT is authorized now).
+    disqualifying_phrases: list = field(default_factory=lambda: DISQUALIFYING_PHRASES)
 
     # Tech stack / role fit
     stack_categories: dict = field(default_factory=lambda: STACK_CATEGORIES)
@@ -66,6 +71,12 @@ class FilterProfile:
     title_fit_strong_points: int = TITLE_FIT_STRONG_POINTS
     title_fit_adjacent_points: int = TITLE_FIT_ADJACENT_POINTS
     title_keyword_boost_max: int = TITLE_KEYWORD_BOOST_MAX
+    # "substring" (original: "rag" also hits "leverage") or "word" (whole-word,
+    # plural-tolerant). Applies to stack keywords and synergy combos.
+    keyword_match: str = "substring"
+    # Optional ceiling on stack-keyword points so a JD that lists 30
+    # technologies can't saturate the match % on its own. None = uncapped.
+    stack_score_max: int | None = None
 
     # Seniority preferences
     level_points: dict = field(default_factory=lambda: dict(DEFAULT_LEVEL_POINTS))
@@ -94,6 +105,7 @@ def profile_to_config(profile: FilterProfile) -> dict:
     return {
         "requires_sponsorship": profile.requires_sponsorship,
         "us_only": profile.us_only,
+        "disqualifying_phrases": list(profile.disqualifying_phrases),
         "stack_categories": {
             cat: dict(kws) for cat, kws in profile.stack_categories.items()
         },
@@ -108,6 +120,8 @@ def profile_to_config(profile: FilterProfile) -> dict:
         "title_fit_strong_points": profile.title_fit_strong_points,
         "title_fit_adjacent_points": profile.title_fit_adjacent_points,
         "title_keyword_boost_max": profile.title_keyword_boost_max,
+        "keyword_match": profile.keyword_match,
+        "stack_score_max": profile.stack_score_max,
         "level_points": dict(profile.level_points),
         "max_min_exp": profile.max_min_exp,
         "prefer_h1b_bonus": profile.prefer_h1b_bonus,
@@ -136,13 +150,13 @@ def profile_from_config(config: dict | None) -> FilterProfile:
         "requires_sponsorship", "us_only", "poor_fit_max",
         "title_fit_strong_points", "title_fit_adjacent_points",
         "title_keyword_boost_max", "max_min_exp", "prefer_h1b_bonus",
-        "recommended_min_pct",
+        "recommended_min_pct", "keyword_match", "stack_score_max",
     ):
         if name in cfg:
             kwargs[name] = cfg[name]
 
     for name in ("stack_categories", "title_fit_strong", "title_fit_adjacent",
-                 "level_points", "h1b_phrases"):
+                 "level_points", "h1b_phrases", "disqualifying_phrases"):
         if name in cfg and cfg[name] is not None:
             kwargs[name] = cfg[name]
 

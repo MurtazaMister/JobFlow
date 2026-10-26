@@ -26,7 +26,7 @@ def migrate():
         sys.exit(1)
 
     # Load JSON store
-    store = json.loads(jobs_path.read_text())
+    store = json.loads(jobs_path.read_text(encoding="utf-8"))
     jobs = store.get("jobs", {})
     print(f"Loaded {len(jobs)} jobs from {jobs_path}")
 
@@ -120,7 +120,7 @@ def migrate():
     # Migrate seen_jobs
     if seen_path.exists():
         print(f"\nMigrating seen_jobs from {seen_path}...")
-        seen_data = json.loads(seen_path.read_text())
+        seen_data = json.loads(seen_path.read_text(encoding="utf-8"))
         if isinstance(seen_data, list):
             seen_data = {url: now.isoformat() for url in seen_data}
 

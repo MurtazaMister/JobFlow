@@ -19,6 +19,7 @@ dependencies = [
     "requests>=2.31",
     "cryptography>=42.0",
     "anthropic>=0.40",
+    "tzdata>=2024.1; sys_platform == 'win32'",  # zoneinfo has no system tz db on Windows
 ]
 
 [project.scripts]

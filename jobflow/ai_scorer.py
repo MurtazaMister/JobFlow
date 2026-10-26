@@ -112,7 +112,7 @@ def _load_profile(config_root: Path | None = None) -> str:
     else:
         profile_path = Path(__file__).parent.parent / "config" / "profile.txt"
     if profile_path.exists():
-        return profile_path.read_text().strip()
+        return profile_path.read_text(encoding="utf-8").strip()
     return ""
 
 

@@ -70,7 +70,7 @@ def load_store(path: Path) -> dict:
     """Load linkedin_jobs.json. Returns empty store if missing."""
     if path.exists():
         try:
-            return json.loads(path.read_text())
+            return json.loads(path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, ValueError):
             pass
     return {"jobs": {}, "last_updated": ""}
@@ -81,7 +81,7 @@ def save_store(path: Path, store: dict) -> None:
     store["last_updated"] = datetime.now(timezone.utc).isoformat()
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(store, indent=2))
+    tmp.write_text(json.dumps(store, indent=2), encoding="utf-8")
     tmp.replace(path)
 
 
@@ -158,6 +158,10 @@ def _rescore_entry(entry: dict, profile=None) -> dict:
     result = evaluate_job(job, first_seen=entry.get("first_seen"), profile=profile)
 
     entry["score"] = result.score
+    # The breakdown and variant must track the profile used here, or per-user
+    # re-scores (backfill, Settings saves) leave a blank/stale match tooltip.
+    entry["reason"] = result.reason
+    entry["variant"] = result.resume_variant
     entry["level"] = result.level
     entry["min_exp"] = result.min_exp
     entry["max_exp"] = result.max_exp

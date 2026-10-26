@@ -32,7 +32,7 @@ def load_base_resume(variant: str, config: dict) -> str:
     path = config["resumes"].get(variant)
     if not path or not Path(path).exists():
         raise FileNotFoundError(f"Base resume not found for variant '{variant}': {path}")
-    return Path(path).read_text()
+    return Path(path).read_text(encoding="utf-8")
 
 
 def load_master_prompt(config: dict) -> str:
@@ -40,7 +40,7 @@ def load_master_prompt(config: dict) -> str:
     path = config["resume_prompt"]
     if not Path(path).exists():
         raise FileNotFoundError(f"Resume prompt not found: {path}")
-    return Path(path).read_text()
+    return Path(path).read_text(encoding="utf-8")
 
 
 def extract_preamble_and_education(tex: str) -> str:
@@ -136,7 +136,7 @@ def save_tailored_resume(tex_content: str, output_dir: Path, company: str = "", 
         filename = "tailored_resume.tex"
 
     tex_path = output_dir / filename
-    tex_path.write_text(tex_content)
+    tex_path.write_text(tex_content, encoding="utf-8")
     return tex_path
 
 

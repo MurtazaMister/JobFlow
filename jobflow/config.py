@@ -28,7 +28,7 @@ def load_dotenv(root: Path | None = None) -> None:
     env_path = (root or Path.cwd()) / ".env"
     if not env_path.exists():
         return
-    for line in env_path.read_text().splitlines():
+    for line in env_path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
@@ -62,7 +62,7 @@ def load_config(path: str = "") -> dict:
     root = config_path.parent.parent
     load_dotenv(root)
 
-    with open(config_path) as f:
+    with open(config_path, encoding="utf-8") as f:
         config = yaml.safe_load(f)
 
     required = ["resumes", "output_dir", "csv_path", "resume_prompt"]

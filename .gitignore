@@ -43,3 +43,6 @@ config/profile.txt
 
 # Local screenshots / UI captures
 *.png
+
+# Personal scoring profile (scripts/apply_filter_profile.py)
+config/filter_profile.json

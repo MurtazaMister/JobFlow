@@ -43,6 +43,7 @@ Variant Selection:
 
 import re
 from datetime import datetime, timezone
+from functools import lru_cache
 
 from .models import FilterResult, JobPosting
 
@@ -396,7 +397,20 @@ def select_variant(description: str) -> str:
 
 # ── Scoring components ──────────────────────────────────────────────────────
 
-def keyword_score(text: str, stack=None) -> tuple[int, int]:
+@lru_cache(maxsize=4096)
+def _word_pattern(keyword: str) -> re.Pattern:
+    # Whole-word match with an optional plural "s": "api" hits "APIs" but
+    # "rag" no longer hits "leverage" and "aws" no longer hits "laws".
+    return re.compile(r"(?<![a-z0-9])" + re.escape(keyword) + r"s?(?![a-z0-9])")
+
+
+def _has_keyword(keyword: str, lower: str, whole_word: bool) -> bool:
+    if whole_word:
+        return _word_pattern(keyword).search(lower) is not None
+    return keyword in lower
+
+
+def keyword_score(text: str, stack=None, whole_word: bool = False) -> tuple[int, int]:
     """Binary presence match across all stack categories. Returns (raw_score, hit_count).
 
     Scans title+description for each keyword in ``stack`` (defaults to the
@@ -404,6 +418,7 @@ def keyword_score(text: str, stack=None) -> tuple[int, int]:
     or not). The score is the sum of weights for all matched keywords; hit_count
     tracks how many distinct keywords matched. Pass a per-user stack to score a
     job against that user's tech preferences instead of the default.
+    ``whole_word`` switches from substring to whole-word matching.
     """
     stack = stack if stack is not None else STACK_CATEGORIES
     lower = text.lower()
@@ -411,18 +426,18 @@ def keyword_score(text: str, stack=None) -> tuple[int, int]:
     hits = 0
     for category in stack.values():
         for keyword, weight in category.items():
-            if keyword in lower:
+            if _has_keyword(keyword, lower, whole_word):
                 score += weight
                 hits += 1
     return score, hits
 
 
-def synergy_bonus(text: str, combos=None) -> int:
+def synergy_bonus(text: str, combos=None, whole_word: bool = False) -> int:
     combos = combos if combos is not None else SYNERGY_COMBOS
     lower = text.lower()
     bonus = 0
     for keywords, points in combos:
-        if all(k in lower for k in keywords):
+        if all(_has_keyword(k, lower, whole_word) for k in keywords):
             bonus += points
     return bonus
 
@@ -441,7 +456,8 @@ def title_fit_bonus(title: str, profile=None) -> int:
 def title_keyword_boost(title: str, profile=None) -> int:
     """Extra (capped) points when stack keywords appear in the title itself."""
     profile = profile if profile is not None else _default_profile()
-    score, _ = keyword_score(title, profile.stack_categories)
+    score, _ = keyword_score(title, profile.stack_categories,
+                             whole_word=profile.keyword_match == "word")
     return min(score, profile.title_keyword_boost_max)
 
 
@@ -692,7 +708,7 @@ def evaluate_job(job: JobPosting, first_seen: str | None = None,
     # ── 3. Sponsorship / citizenship / clearance ──
     # Only a hard reject for users who need sponsorship; a citizen/GC holder
     # should still see these jobs.
-    if profile.requires_sponsorship and _has_phrase(text_lower, DISQUALIFYING_PHRASES):
+    if profile.requires_sponsorship and _has_phrase(text_lower, profile.disqualifying_phrases):
         return _reject("No visa sponsorship or requires citizenship/clearance")
 
     # ── 4. Non-US location ──
@@ -720,12 +736,15 @@ def evaluate_job(job: JobPosting, first_seen: str | None = None,
     reasons = []
 
     # Keyword matching — how well does this JD match the user's tech stack?
-    ks, hits = keyword_score(text, profile.stack_categories)
+    whole_word = profile.keyword_match == "word"
+    ks, hits = keyword_score(text, profile.stack_categories, whole_word=whole_word)
+    if profile.stack_score_max is not None:
+        ks = min(ks, profile.stack_score_max)
     if ks > 0:
         reasons.append(f"Stack +{ks}")
 
     # Synergy bonus
-    sb = synergy_bonus(text, profile.synergy_combos)
+    sb = synergy_bonus(text, profile.synergy_combos, whole_word=whole_word)
     if sb > 0:
         reasons.append(f"Synergy +{sb}")
 

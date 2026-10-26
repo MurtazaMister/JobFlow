@@ -52,10 +52,13 @@ def _get_pool():
     """Get or create the connection pool (thread-safe)."""
     global _pool
     if _pool is None or _pool.closed:
+        dsn = _sanitize_dsn(os.environ["DATABASE_URL"])
         _pool = psycopg2.pool.ThreadedConnectionPool(
             1, 5,
-            dsn=_sanitize_dsn(os.environ["DATABASE_URL"]),
-            sslmode="require",
+            dsn=dsn,
+            # Neon needs TLS; an explicit sslmode in the DSN (e.g. a local
+            # Postgres with ?sslmode=disable) wins over this default.
+            sslmode="require" if "sslmode=" not in dsn else None,
             keepalives=1,
             keepalives_idle=30,
             keepalives_interval=10,

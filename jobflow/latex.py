@@ -71,7 +71,7 @@ def compile_pdf(tex_path: Path, final_name: str = "") -> Path | None:
     if result.returncode != 0:
         log_path = tex_path.with_suffix(".log")
         if log_path.exists():
-            log_content = log_path.read_text(errors="replace")
+            log_content = log_path.read_text(encoding="utf-8", errors="replace")
             errors = [l for l in log_content.split("\n") if l.startswith("!")]
             if errors:
                 print("LaTeX errors:\n" + "\n".join(errors[:5]))

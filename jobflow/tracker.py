@@ -51,13 +51,13 @@ def init_csv(path: Path) -> None:
         _migrate_csv(path)
         return
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", newline="") as f:
+    with open(path, "w", newline="", encoding="utf-8") as f:
         csv.writer(f).writerow(HEADERS)
 
 
 def _migrate_csv(path: Path) -> None:
     """Add missing columns to an existing CSV without losing data."""
-    with open(path, newline="") as f:
+    with open(path, newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         existing_headers = reader.fieldnames or []
         rows = list(reader)
@@ -67,7 +67,7 @@ def _migrate_csv(path: Path) -> None:
         return
 
     # Rewrite with all headers, filling missing fields with ""
-    with open(path, "w", newline="") as f:
+    with open(path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=HEADERS, extrasaction="ignore")
         writer.writeheader()
         for row in rows:
@@ -85,7 +85,7 @@ def _load_links(path: Path) -> set:
     """Load all existing job links for dedup."""
     if not path.exists():
         return set()
-    with open(path, newline="") as f:
+    with open(path, newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         return {row.get("link", "").strip() for row in reader if row.get("link", "").strip()}
 
@@ -96,7 +96,7 @@ def is_duplicate(path: Path, link: str, company: str = "", role: str = "") -> bo
         return False
 
     link = link.strip()
-    with open(path, newline="") as f:
+    with open(path, newline="", encoding="utf-8") as f:
         for row in csv.DictReader(f):
             # Match by URL first
             if link and row.get("link", "").strip() == link:
@@ -128,7 +128,7 @@ def append_job(
         console.print(f"[yellow]Duplicate skipped:[/yellow] {company} — {role}")
         return False
 
-    with open(path, "a", newline="") as f:
+    with open(path, "a", newline="", encoding="utf-8") as f:
         csv.writer(f).writerow([
             company, role, link, score, variant, status, source,
             resume_path, date.today().isoformat(), "", notes,
@@ -159,7 +159,7 @@ def update_status(path: Path, index: int, new_status: str, notes: str = "") -> b
         row["notes"] = f"{existing}; {notes}".strip("; ") if existing else notes
 
     # Rewrite entire CSV
-    with open(path, "w", newline="") as f:
+    with open(path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=HEADERS, extrasaction="ignore")
         writer.writeheader()
         for i, r in enumerate(rows):
@@ -175,7 +175,7 @@ def update_status(path: Path, index: int, new_status: str, notes: str = "") -> b
 def list_jobs(path: Path) -> list[dict]:
     if not path.exists():
         return []
-    with open(path, newline="") as f:
+    with open(path, newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         return list(reader)
 

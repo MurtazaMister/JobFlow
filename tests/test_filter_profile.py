@@ -120,6 +120,58 @@ class TestConfigRoundTrip:
         assert profile_from_config({}) == DEFAULT_PROFILE
         assert profile_from_config(None) == DEFAULT_PROFILE
 
+    def test_new_fields_round_trip(self):
+        p = FilterProfile(keyword_match="word", stack_score_max=55,
+                          disqualifying_phrases=["citizens only"])
+        assert profile_from_config(profile_to_config(p)) == p
+
+
+class TestDisqualifyingPhrases:
+    """The sponsorship blocklist is per-user (OPT is authorized to work now)."""
+
+    JD = "Python role. Candidates must be authorized to work in the US."
+
+    def test_default_rejects_authorization_phrase(self):
+        assert evaluate_job(_job(description=self.JD)).reject_reason
+
+    def test_custom_list_keeps_authorization_phrase(self):
+        opt = FilterProfile(disqualifying_phrases=["will not sponsor"])
+        assert not evaluate_job(_job(description=self.JD), profile=opt).reject_reason
+        no_sponsor = _job(description="Python role. We will not sponsor visas.")
+        assert evaluate_job(no_sponsor, profile=opt).reject_reason
+
+
+class TestKeywordMatching:
+    """keyword_match="word" stops substring false positives."""
+
+    STACK = {"x": {"rag": 7, "aws": 6, "api": 2}}
+
+    def test_substring_mode_counts_false_positives(self):
+        p = FilterProfile(stack_categories=self.STACK)
+        jd = "Leverage storage per applicable laws."
+        assert "Stack +13" in evaluate_job(_job(description=jd), profile=p).reason
+
+    def test_word_mode_ignores_false_positives(self):
+        p = FilterProfile(stack_categories=self.STACK, keyword_match="word")
+        jd = "Leverage storage per applicable laws."
+        assert "Stack" not in evaluate_job(_job(description=jd), profile=p).reason
+
+    def test_word_mode_matches_whole_words_and_plurals(self):
+        p = FilterProfile(stack_categories=self.STACK, keyword_match="word")
+        jd = "Build RAG pipelines and REST APIs on AWS."
+        assert "Stack +15" in evaluate_job(_job(description=jd), profile=p).reason
+
+    def test_word_mode_applies_to_synergy(self):
+        p = FilterProfile(stack_categories=self.STACK, keyword_match="word",
+                          synergy_combos=[({"rag", "aws"}, 9)])
+        assert "Synergy" not in evaluate_job(_job(description="Leverage laws."), profile=p).reason
+        assert "Synergy +9" in evaluate_job(_job(description="RAG on AWS."), profile=p).reason
+
+    def test_stack_score_cap(self):
+        p = FilterProfile(stack_categories=self.STACK, keyword_match="word", stack_score_max=8)
+        jd = "Build RAG pipelines and REST APIs on AWS."
+        assert "Stack +8" in evaluate_job(_job(description=jd), profile=p).reason
+
 
 class TestDefaultProfileRegression:
     """evaluate_job(job) must be byte-identical to passing DEFAULT_PROFILE."""
@@ -134,3 +186,31 @@ class TestDefaultProfileRegression:
     ])
     def test_no_profile_equals_default_profile(self, job):
         assert evaluate_job(job) == evaluate_job(job, profile=DEFAULT_PROFILE)
+
+
+class TestRescoreEntryBreakdown:
+    """Per-user re-scores must refresh the match breakdown shown in the feed."""
+
+    def test_reason_and_variant_follow_profile(self):
+        from jobflow.linkedin_store import _rescore_entry
+        entry = {"url": "x", "title": "Software Engineer", "company": "Acme",
+                 "location": "Remote, US", "description_preview": "Python and Rust.",
+                 "reason": "stale"}
+        p = FilterProfile(stack_categories={"x": {"rust": 9}})
+        out = _rescore_entry(dict(entry), p)
+        assert "Stack +9" in out["reason"]
+        assert out["variant"]
+
+
+class TestSearchTerms:
+    """Settings search terms are added to the default LinkedIn searches."""
+
+    def test_merge_dedupes_and_keeps_defaults_first(self):
+        from jobflow.scanner import merge_search_terms, LINKEDIN_SEARCH_TERMS
+        terms = merge_search_terms(["Backend Engineer", " backend engineer ", "",
+                                    LINKEDIN_SEARCH_TERMS[0].upper()])
+        assert terms == [*LINKEDIN_SEARCH_TERMS, "Backend Engineer"]
+
+    def test_merge_caps_total(self):
+        from jobflow.scanner import merge_search_terms, MAX_SEARCH_TERMS
+        assert len(merge_search_terms([f"term {i}" for i in range(50)])) == MAX_SEARCH_TERMS

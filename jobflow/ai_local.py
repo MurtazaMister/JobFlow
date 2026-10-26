@@ -18,13 +18,17 @@ CLI_TIMEOUT = 300
 def score_batch_with_claude(batch, profile: str):
     """Score a batch using one signed-in `claude -p` (headless) call."""
     prompt = BATCH_PROMPT.format(profile=profile, jobs_block=build_jobs_block(batch))
-    if not shutil.which("claude"):
+    claude = shutil.which("claude")
+    if not claude:
         print("  Batch error: claude CLI not found on PATH")
         return None
     try:
+        # Resolved path + explicit UTF-8: on Windows a bare name can't launch
+        # .cmd shims, and the default pipe encoding (cp1252) mangles JDs.
         result = subprocess.run(
-            ["claude", "-p", "--output-format", "text", "--allowedTools", ""],
-            input=prompt, capture_output=True, text=True, timeout=CLI_TIMEOUT,
+            [claude, "-p", "--output-format", "text", "--allowedTools", ""],
+            input=prompt, capture_output=True, text=True, encoding="utf-8",
+            errors="replace", timeout=CLI_TIMEOUT,
         )
         if result.returncode != 0:
             err = (result.stderr or result.stdout or "").strip()
@@ -36,10 +40,29 @@ def score_batch_with_claude(batch, profile: str):
         return None
 
 
+_codex_flag_cache: dict[str, bool] = {}
+
+
+def _codex_supports(codex: str, flag: str) -> bool:
+    """Whether this codex build's `exec` accepts ``flag`` (older CLIs reject
+    unknown flags outright, failing every batch)."""
+    if flag not in _codex_flag_cache:
+        try:
+            out = subprocess.run(
+                [codex, "exec", "--help"], capture_output=True, text=True,
+                encoding="utf-8", errors="replace", timeout=30,
+            )
+            _codex_flag_cache[flag] = flag in (out.stdout or "") + (out.stderr or "")
+        except Exception:
+            _codex_flag_cache[flag] = False
+    return _codex_flag_cache[flag]
+
+
 def score_batch_with_codex(batch, profile: str, cwd: str | None = None):
     """Score a batch using one signed-in `codex exec` call."""
     prompt = BATCH_PROMPT.format(profile=profile, jobs_block=build_jobs_block(batch))
-    if not shutil.which("codex"):
+    codex = shutil.which("codex")
+    if not codex:
         print("  Batch error: codex CLI not found on PATH")
         return None
     output_path = None
@@ -50,14 +73,15 @@ def score_batch_with_codex(batch, profile: str, cwd: str | None = None):
             output_path = Path(tmp.name)
         result = subprocess.run(
             [
-                "codex", "exec",
+                codex, "exec",
                 "--cd", str(cwd or os.getcwd()),
                 "--sandbox", "read-only",
-                "--ignore-rules",
+                *(["--ignore-rules"] if _codex_supports(codex, "--ignore-rules") else []),
                 "--output-last-message", str(output_path),
                 "-",
             ],
-            input=prompt, capture_output=True, text=True, timeout=CLI_TIMEOUT,
+            input=prompt, capture_output=True, text=True, encoding="utf-8",
+            errors="replace", timeout=CLI_TIMEOUT,
         )
         if result.returncode != 0:
             err = (result.stderr or result.stdout or "").strip()
@@ -65,7 +89,7 @@ def score_batch_with_codex(batch, profile: str, cwd: str | None = None):
             return None
         text = ""
         if output_path and output_path.exists():
-            text = output_path.read_text(errors="replace").strip()
+            text = output_path.read_text(encoding="utf-8", errors="replace").strip()
         if not text:
             text = result.stdout
         return parse_scores(text)
