@@ -299,9 +299,6 @@ def load_job_boards(config: dict) -> dict:
 # Sources we know about but can't scan automatically. They're listed in the
 # Scan Now panel so it's clear what is (and isn't) being aggregated.
 UNAVAILABLE_SOURCES = [
-    {"key": "notify_careers", "label": "notify.careers",
-     "url": "https://app.notify.careers/postings",
-     "note": "Login-only site with no public API; not integrated yet"},
     {"key": "instagram_zero2sudo", "label": "Instagram · @zero2sudo stories",
      "url": "https://www.instagram.com/zero2sudo/",
      "note": "Stories need a logged-in Instagram session; not integrated yet"},
@@ -329,6 +326,13 @@ def scan_sources(config: dict, platforms: list[str] | None = None) -> list[dict]
             if info.get("raw_readme"):
                 sources.append({"key": key, "label": info.get("label", key),
                                 "url": info.get("url", ""), "status": "pending", "note": ""})
+    if not platforms or "notify" in platforms:
+        from .notify_careers import credentials
+        has_creds = credentials() is not None
+        sources.append({"key": "notify_careers", "label": "notify.careers (subscription)",
+                        "url": "https://app.notify.careers/postings",
+                        "status": "pending" if has_creds else "unavailable",
+                        "note": "" if has_creds else "Set NOTIFY_CAREERS_EMAIL / _PASSWORD in .env"})
     sources.extend({**s, "status": "unavailable"} for s in UNAVAILABLE_SOURCES)
     return sources
 
@@ -433,6 +437,34 @@ def scan_all_api_boards(
             for job in jobs:
                 result = evaluate_job(job)
                 all_results.append((job, result))
+
+    # notify.careers (paid aggregator; needs credentials in .env, so it is
+    # skipped quietly where they're absent, e.g. CI)
+    if not platforms or "notify" in platforms:
+        from .notify_careers import credentials, scan_notify_careers
+        if credentials():
+            console.print("\n[bold cyan]Scanning notify.careers...[/bold cyan]")
+            if on_source:
+                on_source("notify_careers", "running")
+            try:
+                jobs = scan_notify_careers()
+            except Exception as e:
+                console.print(f"  [red]notify.careers failed: {e}[/red]")
+                if on_source:
+                    on_source("notify_careers", "error", error=str(e))
+                jobs = None
+            if jobs is not None:
+                known = _known_job_urls(config)
+                if known:
+                    from .linkedin_store import normalize_url
+                    jobs = [j for j in jobs if normalize_url(j.url) not in known]
+                from .jd_fetch import enrich_descriptions
+                fetched, attempted = enrich_descriptions(jobs)
+                console.print(f"  [green]{len(jobs)} new jobs, {fetched}/{attempted} descriptions fetched[/green]")
+                if on_source:
+                    on_source("notify_careers", "done", count=len(jobs))
+                for job in jobs:
+                    all_results.append((job, evaluate_job(job)))
 
     return all_results
 

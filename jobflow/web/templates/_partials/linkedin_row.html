@@ -30,8 +30,8 @@
                     {% elif job.url and 'myworkdayjobs.com' in job.url %}<span class="tag tag-wd">Workday</span>
                     {% elif job.url %}<span class="tag tag-other">Career</span>
                     {% endif %}
-                    {% set src_labels = {'simplify': 'via Simplify', 'speedyapply': 'via SpeedyApply', 'jobright': 'via Jobright', 'github': 'via GitHub list'} %}
-                    {% if job.source in src_labels %}<span class="tag tag-src" title="Found in a GitHub new-grad list">{{ src_labels[job.source] }}</span>{% endif %}
+                    {% set src_labels = {'simplify': 'via Simplify', 'speedyapply': 'via SpeedyApply', 'jobright': 'via Jobright', 'github': 'via GitHub list', 'notify': 'via notify.careers'} %}
+                    {% if job.source in src_labels %}<span class="tag tag-src" title="Found via an aggregator">{{ src_labels[job.source] }}</span>{% endif %}
                     {% if job.h1b is defined and job.h1b %}<span class="tag tag-h1b">H1B ✓</span>{% endif %}
                 </div>
                 <div class="role-sub">

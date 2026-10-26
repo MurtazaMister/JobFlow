@@ -1040,8 +1040,9 @@ def _scan_mode(gh: str | None) -> str:
     return "github" if gh else "local"
 
 
-# Platforms the in-process Scan Now covers (same set as the CI workflow).
-LOCAL_SCAN_PLATFORMS = ["linkedin", "github"]
+# Platforms the in-process Scan Now covers: the CI set plus notify.careers,
+# whose credentials only live in the local .env.
+LOCAL_SCAN_PLATFORMS = ["linkedin", "github", "notify"]
 
 
 def _scan_sources_view(config):
