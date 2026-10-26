@@ -104,7 +104,7 @@ ai_state = {
     "_process": None,
 }
 
-AI_ENGINES = ("claude", "codex")
+AI_ENGINES = ("gemma", "claude", "codex")   # gemma = local model (jobflow/ai_llama.py)
 AI_LOG_TAIL = 100  # keep this many output lines for the status endpoint
 
 # The web server often runs with a minimal PATH (launched from an IDE, launchd,
@@ -933,10 +933,15 @@ def create_app():
             }), 400
 
         # Operator / default: shell out to the signed-in CLI on this server.
-        engine = (data.get("engine") or "claude").strip().lower()
+        engine = (data.get("engine") or "gemma").strip().lower()
         if engine not in AI_ENGINES:
             return jsonify({"error": f"Unknown engine '{engine}'"}), 400
-        if not _which_cli(engine):
+        if engine == "gemma":
+            from ..ai_llama import missing_setup
+            problem = missing_setup()
+            if problem:
+                return jsonify({"error": problem}), 400
+        elif not _which_cli(engine):
             return jsonify({"error": f"'{engine}' CLI not found. Configure AI scoring in Settings, "
                                      "or install the CLI and sign in, then restart the server."}), 400
 
@@ -966,8 +971,14 @@ def create_app():
             proc = ai_state.get("_process")
             if proc and proc.poll() is None:
                 try:
-                    proc.kill()
-                except OSError:
+                    if os.name == "nt":
+                        # Kill the whole tree: the scorer's children (llama-server
+                        # holding ~13 GB, or a claude/codex call) outlive a plain kill.
+                        subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                                       capture_output=True, timeout=30)
+                    else:
+                        proc.kill()
+                except (OSError, subprocess.SubprocessError):
                     pass
         return jsonify(_ai_state_snapshot())
 

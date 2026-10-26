@@ -550,27 +550,31 @@ def login(
 
 @app.command()
 def score(
-    engine: str = typer.Option("claude", "--engine", help="Signed-in CLI to score with: claude or codex."),
+    engine: str = typer.Option("gemma", "--engine",
+                               help="gemma (local model via llama.cpp), or the signed-in claude / codex CLI."),
     hours: float = typer.Option(0, "--hours", help="Only score jobs first seen in the past H hours."),
     limit: int = typer.Option(0, "--limit", "-n", help="Score at most N jobs (0 = server default)."),
     rescore: bool = typer.Option(False, "--rescore", help="Include jobs that already have an AI score."),
 ):
-    """AI-score your JobFlow feed locally with your signed-in Claude/Codex CLI.
+    """AI-score your JobFlow feed on this machine.
 
-    Pulls your unscored jobs from the server, scores them on this machine (no API
-    key, uses your Claude/Codex subscription), and pushes results back. Run
+    Pulls your unscored jobs from the server, scores them locally (no API key:
+    a local Gemma model via llama.cpp by default, or your signed-in Claude/Codex
+    CLI with --engine), and pushes results back. Run
     `jobflow login --token <token>` first (get the token from the web Settings page).
     """
     import requests
-    from .ai_prompt import BATCH_SIZE, is_blocked_staffing_source, STAFFING_BLOCK_REASON
-    from .ai_local import score_batch
+    from contextlib import ExitStack
+    from .ai_prompt import is_blocked_staffing_source, STAFFING_BLOCK_REASON
+    from .ai_local import ENGINES, batch_size, score_batch
+    from .ai_llama import LlamaServer, LlamaError
 
     creds = _load_credentials()
     if not creds.get("token"):
         console.print("[red]Not paired.[/red] Run: [bold]jobflow login --token <token-from-Settings>[/bold]")
         raise typer.Exit(1)
-    if engine not in ("claude", "codex"):
-        console.print("[red]--engine must be 'claude' or 'codex'[/red]")
+    if engine not in ENGINES:
+        console.print(f"[red]--engine must be one of: {', '.join(ENGINES)}[/red]")
         raise typer.Exit(1)
     server, token = creds["server"].rstrip("/"), creds["token"]
 
@@ -597,28 +601,36 @@ def score(
         console.print("[green]Nothing to score — your feed is up to date.[/green]")
         return
 
-    console.print(f"Scoring [bold]{len(jobs)}[/bold] jobs with the signed-in {engine} CLI…")
+    console.print(f"Scoring [bold]{len(jobs)}[/bold] jobs with {engine}…")
     rows = [(j["url"], j.get("company", ""), j.get("title", ""), j.get("location", ""),
              j.get("description", "")) for j in jobs]
     results = []
     total = len(rows)
-    total_batches = (total + BATCH_SIZE - 1) // BATCH_SIZE
-    for i in range(0, total, BATCH_SIZE):
-        batch = rows[i:i + BATCH_SIZE]
-        bn = i // BATCH_SIZE + 1
-        console.print(f"  Batch {bn}/{total_batches} ({len(batch)} jobs)…")
-        blocked = [r for r in batch if is_blocked_staffing_source(r)]
-        scorable = [r for r in batch if not is_blocked_staffing_source(r)]
-        for r in blocked:
-            results.append({"url": r[0], "score": 0, "reason": STAFFING_BLOCK_REASON})
-        if scorable:
-            scores = score_batch(scorable, profile, engine)
-            if scores and len(scores) == len(scorable):
-                for r, s in zip(scorable, scores):
-                    results.append({"url": r[0], "score": s.get("score", 0),
-                                    "reason": s.get("reason", "")})
-            else:
-                console.print(f"    [yellow]Batch {bn} failed — skipping[/yellow]")
+    bs = batch_size(engine)
+    total_batches = (total + bs - 1) // bs
+    with ExitStack() as stack:
+        if engine == "gemma":
+            try:
+                stack.enter_context(LlamaServer())
+            except LlamaError as e:
+                console.print(f"[red]{e}[/red]")
+                raise typer.Exit(1)
+        for i in range(0, total, bs):
+            batch = rows[i:i + bs]
+            bn = i // bs + 1
+            console.print(f"  Batch {bn}/{total_batches} ({len(batch)} jobs)…")
+            blocked = [r for r in batch if is_blocked_staffing_source(r)]
+            scorable = [r for r in batch if not is_blocked_staffing_source(r)]
+            for r in blocked:
+                results.append({"url": r[0], "score": 0, "reason": STAFFING_BLOCK_REASON})
+            if scorable:
+                scores = score_batch(scorable, profile, engine)
+                if scores and len(scores) == len(scorable):
+                    for r, s in zip(scorable, scores):
+                        results.append({"url": r[0], "score": s.get("score", 0),
+                                        "reason": s.get("reason", "")})
+                else:
+                    console.print(f"    [yellow]Batch {bn} failed — skipping[/yellow]")
 
     if not results:
         console.print("[yellow]No scores produced.[/yellow]")

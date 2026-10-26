@@ -50,12 +50,22 @@
     </td>
     <td class="match-cell" data-label="Match">
         {% set match_cls = 'match-high' if match_pct >= 70 else ('match-med' if match_pct >= 40 else 'match-low') %}
-        <span class="match-val {{ match_cls }}" {% if job.ai_reason %}title="{{ job.ai_reason }}"{% elif job.reason %}title="{{ job.reason }}"{% endif %}>{{ match_pct }}%</span>
-        {%- if job.ai_model -%}
-        <span class="ai-src ai-src-{{ job.ai_model }}" title="Scored by {{ job.ai_model | capitalize }}">{{ job.ai_model[:1] | upper }}</span>
+        {#- Instant hover card with the scorer's one-sentence reason (CSS tooltip from data-tip). -#}
+        {%- if job.ai_reason -%}
+        {% set tip = (job.ai_model or 'AI') | capitalize ~ ' · ' ~ ai ~ '/10 — ' ~ job.ai_reason %}
+        {%- elif job.reason -%}
+        {% set tip = 'Algorithm — ' ~ job.reason %}
         {%- else -%}
-        <span class="ai-src ai-src-algo" title="Algorithmic score — run AI Score for a smarter match">A</span>
+        {% set tip = '' %}
         {%- endif %}
+        <span class="match-tip" {% if tip %}data-tip="{{ tip }}" aria-label="{{ tip }}" tabindex="0"{% endif %}>
+        <span class="match-val {{ match_cls }}">{{ match_pct }}%</span>
+        {%- if job.ai_model -%}
+        <span class="ai-src ai-src-{{ job.ai_model }}">{{ job.ai_model[:1] | upper }}</span>
+        {%- else -%}
+        <span class="ai-src ai-src-algo">A</span>
+        {%- endif %}
+        </span>
         <div class="match-bar {{ match_cls }}"><i style="--match: {{ (match_pct / 100)|round(2) }}"></i></div>
     </td>
     <td data-label="Level">

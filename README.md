@@ -38,7 +38,7 @@ job for fit.
 - 🎯 **Personalized scoring** — a fast rule-based engine ranks each job 0–100% against your stack,
   target roles, seniority band, and sponsorship needs.
 - ✨ **AI scoring, your choice** — layer Claude on top using **your own API key** (server-side) or
-  **your own local Claude/Codex CLI** (free). Per-user, opt-in.
+  **a local Gemma model or your own Claude/Codex CLI** (free). Per-user, opt-in.
 - 🧵 **Live dashboard** — spreadsheet-style feed with time buckets, filter chips, search, and
   per-user status tracking (Tracking / Applied / Not Interested).
 - 📄 **Resume tailoring** (CLI) — Claude rewrites your LaTeX resume per job description and compiles
@@ -95,8 +95,10 @@ Paste your Anthropic API key (stored **encrypted** at rest) and pick a model (Ha
 Opus 4.8; Haiku default). Click **AI Score** and the server scores your jobs and writes them to your
 feed. You pay for your own usage; runs are **capped per click** so a single run can't surprise you.
 
-### B) Your local Claude/Codex CLI (free) — bring your own compute
-No API key, no server cost — score with the Claude subscription you already have:
+### B) Locally (free) — bring your own compute
+No API key, no server cost — score on your own machine with a local open-weight model (default:
+Gemma 4 26B-A4B via [llama.cpp](https://github.com/ggml-org/llama.cpp), ~14 GB RAM), or with the
+Claude/Codex subscription you already have (`--engine claude|codex`):
 
 ```bash
 pip install "git+https://github.com/kiiriis/JobFlow"
@@ -104,8 +106,8 @@ jobflow login --token <your-pairing-token>   # token shown in Settings
 jobflow score                                 # scores YOUR unscored jobs locally
 ```
 
-The client pulls your unscored jobs from the server, scores them with your **signed-in** `claude`
-(or `codex`) CLI, and pushes the results back — all authenticated by a per-user pairing token you
+The client pulls your unscored jobs from the server, scores them locally (Gemma via `llama-server`,
+or your **signed-in** `claude` / `codex` CLI), and pushes the results back — all authenticated by a per-user pairing token you
 can regenerate (which revokes the old one) any time.
 
 > The **operator** (the account that runs the server / owns the original data) can also score via a
@@ -226,7 +228,7 @@ preserving your header + education, and compiles a one-page PDF with `pdflatex`.
 | `jobflow web` | Launch the dashboard (single- or multi-user by env). |
 | `jobflow scan [--platform …] [--hours N]` | Scan sources; merge + fan-out to users. |
 | `jobflow login --token <t> [--server <url>]` | Pair the local CLI client to your account. |
-| `jobflow score [--engine claude\|codex] [--hours N] [--limit N] [--rescore]` | Score *your* jobs locally, push results back. |
+| `jobflow score [--engine gemma\|claude\|codex] [--hours N] [--limit N] [--rescore]` | Score *your* jobs locally, push results back. |
 | `jobflow apply <url> …` / `jobflow save --dir <path>` | Tailor + compile a resume. |
 | `jobflow migrate-multiuser` | Seed the operator user + migrate legacy single-user data. |
 | `jobflow init` | First-time local setup. |
@@ -252,7 +254,8 @@ JobFlow/
 │   ├── filter_profile.py        # Per-user FilterProfile (tunable scoring knobs)
 │   ├── scanner.py               # Source scanners (LinkedIn/Lever/Greenhouse/Ashby/GitHub)
 │   ├── ai_prompt.py             # Shared scoring prompt + parse/normalize helpers
-│   ├── ai_local.py              # Local Claude/Codex CLI batch scoring
+│   ├── ai_local.py              # Local scoring engines (gemma / claude / codex)
+│   ├── ai_llama.py              # Local Gemma model via llama.cpp llama-server
 │   ├── ai_scorer_anthropic.py   # Server-side Anthropic API scoring (per-user key)
 │   ├── ai_scorer.py             # Legacy optional Groq scorer
 │   ├── scraper.py · tailor.py · latex.py · tracker.py   # Resume tailoring + tracking

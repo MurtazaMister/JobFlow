@@ -1,6 +1,7 @@
-"""Local signed-in CLI scoring — drives the `claude` or `codex` CLI over a
-subprocess (no API key). Shared by the batch script (scripts/ai_score_local.py)
-and the `jobflow score` client so a friend's local machine scores identically to
+"""Local scoring engines (no API key): a local open-weight model via llama.cpp
+(`gemma`, the default — see ai_llama.py) or the signed-in `claude` / `codex` CLI
+over a subprocess. Shared by the batch script (scripts/ai_score_local.py) and
+the `jobflow score` client so a friend's local machine scores identically to
 the operator's.
 """
 
@@ -10,7 +11,8 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from .ai_prompt import BATCH_PROMPT, build_jobs_block, parse_scores
+from . import ai_llama
+from .ai_prompt import BATCH_PROMPT, BATCH_SIZE, build_jobs_block, parse_scores
 
 CLI_TIMEOUT = 300
 
@@ -104,8 +106,19 @@ def score_batch_with_codex(batch, profile: str, cwd: str | None = None):
                 pass
 
 
+ENGINES = ("gemma", "claude", "codex")
+DEFAULT_ENGINE = "gemma"
+
+
+def batch_size(engine: str) -> int:
+    """Jobs per call: the local model gets smaller batches than the CLIs."""
+    return ai_llama.BATCH_SIZE if engine == "gemma" else BATCH_SIZE
+
+
 def score_batch(batch, profile: str, engine: str, cwd: str | None = None):
-    """Dispatch a batch to the selected local CLI engine."""
+    """Dispatch a batch to the selected local engine."""
+    if engine == "gemma":
+        return ai_llama.score_batch_with_llama(batch, profile)
     if engine == "codex":
         return score_batch_with_codex(batch, profile, cwd=cwd)
     return score_batch_with_claude(batch, profile)

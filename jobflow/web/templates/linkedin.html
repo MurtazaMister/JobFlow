@@ -175,7 +175,8 @@ jobflow score</pre>
                     <div>
                         <label>Engine</label>
                         <div class="engine-seg" id="ai-engine-seg">
-                            <button type="button" class="active" data-engine="claude" onclick="setAiEngine('claude')">Claude<span class="eng-sub">claude -p</span></button>
+                            <button type="button" class="active" data-engine="gemma" onclick="setAiEngine('gemma')">Gemma<span class="eng-sub">local model</span></button>
+                            <button type="button" data-engine="claude" onclick="setAiEngine('claude')">Claude<span class="eng-sub">claude -p</span></button>
                             <button type="button" data-engine="codex" onclick="setAiEngine('codex')">Codex<span class="eng-sub">codex exec</span></button>
                         </div>
                     </div>
@@ -349,7 +350,8 @@ function refreshFeed(btn) {
         else showToast(data.error || 'Refresh failed', 'error');
         triggerFilter({timeMeta: true});
     }).catch(function() {
-        showToast('Refresh failed', 'error');
+        // fetch() only rejects when no response came back at all.
+        showToast("Refresh failed: can't reach the JobFlow server. Is `jobflow web` running?", 'error');
     }).finally(function() {
         btn.disabled = false;
     });
@@ -907,7 +909,7 @@ function getUserTzOffset() {
 
 /* ════════ AI Score Runner ════════ */
 var _aiPoll = null;
-var _aiEngine = 'claude';
+var _aiEngine = 'gemma';
 
 function openAiModal() {
     document.getElementById('ai-modal').classList.add('open');

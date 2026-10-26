@@ -54,6 +54,17 @@ Traps to avoid:
 
 In your one-sentence reason, when experience decided the outcome, cite it explicitly (e.g. "2+ yrs industry required, no MS path" or "MS+0 alternative stated").
 
+## MISSING OR THIN DESCRIPTIONS
+Many jobs arrive with only a title (or a one-line description). That is NEVER a reason for 0:
+- Score from the title, company and location alone: 3-7. Reserve 8-10 for jobs whose description you could actually read.
+- Give 0 for a title-only job ONLY if the title/location itself triggers a hard reject (e.g. "Senior"/"Staff" in the title, a non-US city, or an explicitly non-SWE role).
+- Do NOT assume restrictions that are not written down. A defense, aerospace or government employer whose posting does not state citizenship/clearance requirements is NOT a 0 — lower the score (1-3) for the likely restriction instead.
+
+## COMMON MISTAKES — check before answering
+- Read the TITLE for location too: "... - Dubai/Abu Dhabi" or "London" in the title means not US-based (0) even if the Location field says a US city.
+- "N+ years of <technology/domain>" ("3+ years in distributed file systems", "2+ years of Elixir", "2+ years with PyTorch") is SKILL experience (rule B): lower the score, never 0.
+- QA-only / manual-test / SDET roles with no development work are reject #4 (0), not a weak fit.
+
 ## SCORING GUIDE (only if no hard reject applies)
 
 **9-10 — Perfect fit:** Entry-level/new grad SWE, ML, Backend, Data Engineer. Python/ML/backend stack. Sponsors visas. Reputable company.

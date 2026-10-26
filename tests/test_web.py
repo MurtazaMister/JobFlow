@@ -170,6 +170,18 @@ class TestAiScoreAPI:
         assert r.status_code == 400
         assert "engine" in json.loads(r.data)["error"].lower()
 
+    def test_trigger_defaults_to_gemma_and_reports_missing_setup(self, client, monkeypatch):
+        import jobflow.ai_llama as ai_llama
+        monkeypatch.setattr(ai_llama, "missing_setup", lambda: "llama-server not found.")
+        r = client.post("/api/aiscore/trigger", data={})
+        assert r.status_code == 400
+        assert "llama-server" in json.loads(r.data)["error"]
+
+    def test_feed_offers_gemma_first(self, client):
+        html = client.get("/linkedin").data.decode()
+        assert 'data-engine="gemma"' in html
+        assert html.index('data-engine="gemma"') < html.index('data-engine="claude"')
+
     def test_trigger_rejects_bad_numbers(self, client):
         r = client.post("/api/aiscore/trigger", data={"engine": "claude", "hours": "abc"})
         assert r.status_code == 400

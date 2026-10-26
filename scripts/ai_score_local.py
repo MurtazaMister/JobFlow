@@ -1,7 +1,9 @@
-"""Local AI scoring using the signed-in Claude or Codex CLI with batching.
+"""Local AI scoring with batching: a local open-weight model (Gemma via llama.cpp,
+the default) or the signed-in Claude / Codex CLI.
 
 Usage:
-    python scripts/ai_score_local.py                       # defaults to --engine claude
+    python scripts/ai_score_local.py                       # defaults to --engine gemma (local model)
+    python scripts/ai_score_local.py --engine claude
     python scripts/ai_score_local.py --engine codex
     python scripts/ai_score_local.py --limit 50
     python scripts/ai_score_local.py --hours 12
@@ -11,12 +13,13 @@ Usage:
     python scripts/ai_score_local.py --recommended-only   # re-audit recommendations
 
 Reads DATABASE_URL from .env when available, fetches unscored jobs, scores
-them in batches of 15 with the local Claude or Codex CLI session, and updates
-Postgres or data/ci/linkedin_jobs.json. This uses the signed-in Claude/Codex
-app/CLI account instead of an API key.
+them in batches (5 for Gemma, 15 for the CLIs), and updates Postgres or
+data/ci/linkedin_jobs.json. No API key: Gemma runs on this machine (see
+jobflow/ai_llama.py for setup); claude/codex use the signed-in CLI account.
 """
 
 import argparse
+from contextlib import ExitStack
 import json
 import os
 import sys
@@ -47,24 +50,24 @@ from jobflow.ai_prompt import (
 )
 from jobflow.ai_local import (
     score_batch_with_claude, score_batch_with_codex, score_batch,
+    ENGINES, DEFAULT_ENGINE, batch_size,
 )
+from jobflow.ai_llama import LlamaServer, LlamaError
 
 PROFILE_PATH = ROOT / "config" / "profile.txt"
 PROFILE_EXAMPLE_PATH = ROOT / "config" / "profile.example.txt"
 JSON_STORE_PATH = ROOT / "data" / "ci" / "linkedin_jobs.json"
 
-ENGINES = ("claude", "codex")
-
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Score recent/unscored JobFlow jobs with the signed-in Claude or Codex CLI.",
+        description="Score recent/unscored JobFlow jobs with the local Gemma model or a signed-in CLI.",
     )
     parser.add_argument(
         "--engine",
         choices=ENGINES,
-        default="claude",
-        help="Which signed-in CLI to score with. Default: claude.",
+        default=DEFAULT_ENGINE,
+        help="gemma = local model via llama.cpp; claude/codex = signed-in CLI. Default: gemma.",
     )
     parser.add_argument(
         "--limit",
@@ -311,10 +314,11 @@ def print_summary(rows, args, backend: str):
     total = len(rows)
     unscored = sum(1 for r in rows if r[5] is None)
     rescored = total - unscored
-    batches = (total + BATCH_SIZE - 1) // BATCH_SIZE
+    bs = batch_size(args.engine)
+    batches = (total + bs - 1) // bs
     print(f"Engine: {args.engine}")
     print(f"Backend: {backend}")
-    print(f"Found {total} jobs to score ({batches} batches of {BATCH_SIZE})")
+    print(f"Found {total} jobs to score ({batches} batches of {bs})")
     if args.hours:
         print(f"  Window: first_seen in past {args.hours:g} hours")
     if args.limit:
@@ -363,57 +367,66 @@ def main():
     scored = 0
     failed = 0
 
-    for batch_start in range(0, total, BATCH_SIZE):
-        batch = rows[batch_start:batch_start + BATCH_SIZE]
-        batch_num = batch_start // BATCH_SIZE + 1
-        total_batches = (total + BATCH_SIZE - 1) // BATCH_SIZE
-        print(f"\n--- Batch {batch_num}/{total_batches} ({len(batch)} jobs) ---")
+    bs = batch_size(args.engine)
+    with ExitStack() as stack:
+        if args.engine == "gemma":
+            try:
+                stack.enter_context(LlamaServer(ROOT / "data" / "llama-server.log"))
+            except LlamaError as e:
+                print(f"ERROR: {e}")
+                sys.exit(1)
 
-        blocked_rows = []
-        scorable_batch = []
-        for row in batch:
-            if is_blocked_staffing_source(row):
-                blocked_rows.append(row)
-            else:
-                scorable_batch.append(row)
+        for batch_start in range(0, total, bs):
+            batch = rows[batch_start:batch_start + bs]
+            batch_num = batch_start // bs + 1
+            total_batches = (total + bs - 1) // bs
+            print(f"\n--- Batch {batch_num}/{total_batches} ({len(batch)} jobs) ---")
 
-        if blocked_rows:
+            blocked_rows = []
+            scorable_batch = []
+            for row in batch:
+                if is_blocked_staffing_source(row):
+                    blocked_rows.append(row)
+                else:
+                    scorable_batch.append(row)
+
+            if blocked_rows:
+                try:
+                    if backend == "db":
+                        update_db_blocked(blocked_rows, args.engine, args.user_id)
+                    else:
+                        update_json_blocked(store, blocked_rows, args.engine)
+                    for _, company, title, *_ in blocked_rows:
+                        scored += 1
+                        print(f"    0 | {company} — {title} ({STAFFING_BLOCK_REASON})")
+                except Exception as e:
+                    print(f"  {backend.upper()} error: {e}")
+                    failed += len(blocked_rows)
+
+            if not scorable_batch:
+                continue
+
+            scores = score_batch(scorable_batch, profile, args.engine)
+            if not scores or len(scores) != len(scorable_batch):
+                # Fallback: if batch fails or count mismatch, mark as failed
+                for url, company, title, *_ in scorable_batch:
+                    print(f"  SKIP | {company} — {title}")
+                    failed += 1
+                continue
+
             try:
                 if backend == "db":
-                    update_db_blocked(blocked_rows, args.engine, args.user_id)
+                    update_db_scores(scorable_batch, scores, args.engine, args.user_id)
                 else:
-                    update_json_blocked(store, blocked_rows, args.engine)
-                for _, company, title, *_ in blocked_rows:
+                    update_json_scores(store, scorable_batch, scores, args.engine)
+                for (_, company, title, *_), score_data in zip(scorable_batch, scores):
+                    ai_score, _, _, recommended = normalize_row_score(score_data)
                     scored += 1
-                    print(f"    0 | {company} — {title} ({STAFFING_BLOCK_REASON})")
+                    tag = "REC" if recommended else f"  {ai_score}"
+                    print(f"  {tag} | {company} — {title}")
             except Exception as e:
                 print(f"  {backend.upper()} error: {e}")
-                failed += len(blocked_rows)
-
-        if not scorable_batch:
-            continue
-
-        scores = score_batch(scorable_batch, profile, args.engine)
-        if not scores or len(scores) != len(scorable_batch):
-            # Fallback: if batch fails or count mismatch, mark as failed
-            for url, company, title, *_ in scorable_batch:
-                print(f"  SKIP | {company} — {title}")
-                failed += 1
-            continue
-
-        try:
-            if backend == "db":
-                update_db_scores(scorable_batch, scores, args.engine, args.user_id)
-            else:
-                update_json_scores(store, scorable_batch, scores, args.engine)
-            for (_, company, title, *_), score_data in zip(scorable_batch, scores):
-                ai_score, _, _, recommended = normalize_row_score(score_data)
-                scored += 1
-                tag = "REC" if recommended else f"  {ai_score}"
-                print(f"  {tag} | {company} — {title}")
-        except Exception as e:
-            print(f"  {backend.upper()} error: {e}")
-            failed += len(scorable_batch)
+                failed += len(scorable_batch)
 
     if backend == "json":
         save_json_store(store)

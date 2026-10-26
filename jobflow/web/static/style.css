@@ -552,6 +552,25 @@ tr.dismissing { animation: dismiss-out 0.26s ease forwards !important; }
 .ai-src-claude { background: var(--clay-soft); color: var(--clay); }
 .ai-src-codex { background: var(--slate-soft); color: var(--slate); }
 .ai-src-groq { background: var(--slate-soft); color: var(--slate); }
+.ai-src-gemma { background: var(--grow-soft); color: var(--grow); }
+
+/* Score reason: instant hover/focus card on the match % (replaces the slow native title). */
+.match-tip { position: relative; display: inline-block; cursor: help; outline: none; }
+.match-tip[data-tip]::after {
+    content: attr(data-tip);
+    position: absolute; right: 0; bottom: calc(100% + 8px); z-index: 30;
+    width: max-content; max-width: min(340px, 80vw);
+    padding: 8px 10px; border-radius: 8px;
+    background: var(--panel); color: var(--text);
+    border: 1px solid var(--hairline-strong); box-shadow: var(--shadow);
+    font: 500 0.74rem/1.45 var(--font-ui); white-space: normal; text-align: left;
+    opacity: 0; transform: translateY(4px); pointer-events: none;
+    transition: opacity 0.12s ease, transform 0.12s ease;
+}
+/* The table scrolls (overflow clips), so the top rows open the card downward. */
+.jobs-table tbody tr:nth-child(-n+2) .match-tip[data-tip]::after { bottom: auto; top: calc(100% + 8px); }
+.match-tip[data-tip]:hover::after,
+.match-tip[data-tip]:focus-visible::after { opacity: 1; transform: none; }
 .ai-src-algo { background: color-mix(in srgb, var(--text-3) 14%, transparent); color: var(--text-3); }
 
 /* Level: colored dot + quiet text — no pill */
@@ -634,7 +653,7 @@ tr.dismissing { animation: dismiss-out 0.26s ease forwards !important; }
 .modal-body .hint { font-size: 0.78rem; color: var(--text-2); }
 
 .opt-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 13px; margin-bottom: 13px; }
-.engine-seg { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.engine-seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
 .engine-seg button {
     appearance: none; padding: 9px 8px; border-radius: 8px;
     border: 1px solid var(--hairline); background: var(--well);

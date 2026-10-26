@@ -32,7 +32,8 @@ JobFlow/
 │   ├── applied.py           # Applied detection from tailored-application output folders
 │   ├── linkedin_scraper.py  # LinkedIn guest-API transport/parsing (429 backoff, pagination)
 │   ├── ai_prompt.py         # Shared scoring prompt + parse/normalize (used by all scorers)
-│   ├── ai_local.py          # Local Claude/Codex CLI batch scoring
+│   ├── ai_local.py          # Local scoring engines: gemma (default) / claude / codex CLI dispatch
+│   ├── ai_llama.py          # Local open-weight model (Gemma 4) via llama.cpp llama-server
 │   ├── ai_scorer_anthropic.py # Server-side Anthropic API scoring (per-user key)
 │   ├── ai_scorer.py         # Legacy optional Groq scorer
 │   ├── tracker.py           # CSV application tracking (CLI only)
@@ -66,7 +67,7 @@ workflow's inline `from jobflow.db import …`, `wsgi:app`, and `jobflow.cli:app
 ## Commands
 - `jobflow web` — Launch dashboard (single- or multi-user by env)
 - `jobflow scan [--platform linkedin] [--hours N]` — Scan; merge + fan-out to users (used by CI)
-- `jobflow login --token <t>` / `jobflow score` — Local-CLI scoring client (a user's own machine)
+- `jobflow login --token <t>` / `jobflow score [--engine gemma|claude|codex]` — Local scoring client (a user's own machine)
 - `jobflow apply <url> --paste -t … -c … -l …` / `jobflow save --dir <path>` — Resume tailoring
 - `jobflow migrate-multiuser` — Seed operator + migrate legacy single-user data
 - `jobflow list` · `jobflow init`
@@ -96,6 +97,16 @@ gates, seniority band, recommend bar); `DEFAULT_PROFILE` reproduces the original
 seniority proxies (4+ yrs, senior salary) are **soft demotions, not hard rejects**, so the AI
 scorer can rescue misreads. When no AI score exists, `filter.algo_recommended()` flags high-scoring
 entry-level jobs as Recommended. See [docs/SCORING.md](docs/SCORING.md).
+
+## Local AI scoring (Gemma)
+The AI Score button and `jobflow score` default to **gemma**: Gemma 4 26B-A4B (GGUF) run by llama.cpp's
+`llama-server` on this machine — no subscription or API key. `ai_llama.LlamaServer` starts the server
+for a run and stops it after (~14 GB RAM); a server already on `LLAMA_PORT` is reused. Output is
+grammar-constrained JSON; batches of 5, descriptions capped at 6000 chars. Paths via `.env`
+(`LLAMA_SERVER_PATH`, `LLAMA_MODEL_PATH`), else `~/tools/llama.cpp/` and `~/models/`. Claude/Codex
+remain selectable. `scripts/bench_local_models.py` compares local models against stored Claude scores
+(results in git-ignored `data/eval/bench/`). The hover card on a row's match % shows the scorer's
+one-sentence reason (`ai_reason`).
 
 ## Default filter criteria (operator profile)
 New grad / entry-level / SDE 1 · USA-based · must not deny sponsorship · OPT/F1 friendly · SWE
