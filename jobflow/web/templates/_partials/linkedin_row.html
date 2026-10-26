@@ -1,7 +1,7 @@
 {% set ai = job.ai_score|default(none) %}
 {% set match_pct = (ai * 10)|int if ai is not none else job.score_pct|default(0)|int %}
 {% set searchable = (job.company|default('') ~ ' ' ~ job.title|default('') ~ ' ' ~ job.location|default(''))|lower %}
-<tr role="row"
+<tr role="row"{% if job._applied %} class="is-applied"{% endif %}
     data-key="{{ job._key|default('')|e }}"
     data-url="{{ job.url|default('')|e }}"
     data-level="{{ job.level|default('Unknown') }}"
@@ -21,7 +21,8 @@
             <div class="role-info">
                 <div class="role-title">
                     {% if job.recommended %}<span class="rec-star" {% if job.ai_reason %}title="AI: {{ job.ai_reason }}"{% endif %}>★ </span>{% endif %}
-                    {% if job.url %}<a href="{{ job.url }}" target="_blank" rel="noopener">{{ job.title }}</a>{% else %}{{ job.title }}{% endif %}
+                    {% if job.url %}<a href="{{ job.url }}" target="_blank" rel="noopener">{{ job.title }}</a>{% else %}<span class="title-text">{{ job.title }}</span>{% endif %}
+                    {% if job._applied %}<span class="tag tag-applied" title="Applied — output folder: {{ job._applied }}">Applied</span>{% endif %}
                     {% if job.url and 'linkedin.com' in job.url %}<span class="tag tag-linkedin">LinkedIn</span>
                     {% elif job.url and 'greenhouse.io' in job.url %}<span class="tag tag-gh">Greenhouse</span>
                     {% elif job.url and 'lever.co' in job.url %}<span class="tag tag-lever">Lever</span>
@@ -29,6 +30,8 @@
                     {% elif job.url and 'myworkdayjobs.com' in job.url %}<span class="tag tag-wd">Workday</span>
                     {% elif job.url %}<span class="tag tag-other">Career</span>
                     {% endif %}
+                    {% set src_labels = {'simplify': 'via Simplify', 'speedyapply': 'via SpeedyApply', 'jobright': 'via Jobright', 'github': 'via GitHub list'} %}
+                    {% if job.source in src_labels %}<span class="tag tag-src" title="Found in a GitHub new-grad list">{{ src_labels[job.source] }}</span>{% endif %}
                     {% if job.h1b is defined and job.h1b %}<span class="tag tag-h1b">H1B ✓</span>{% endif %}
                 </div>
                 <div class="role-sub">

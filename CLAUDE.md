@@ -28,7 +28,8 @@ JobFlow/
 │   ├── models.py            # JobPosting, FilterResult
 │   ├── filter.py            # Multi-signal scoring engine (evaluate_job)
 │   ├── filter_profile.py    # Per-user FilterProfile + DEFAULT_PROFILE + config (de)serialize
-│   ├── scanner.py           # Scanners (Lever, Greenhouse, Ashby, LinkedIn, GitHub)
+│   ├── scanner.py           # Scanners (Lever, Greenhouse, Ashby, LinkedIn, GitHub README repos) + scan_sources()
+│   ├── applied.py           # Applied detection from tailored-application output folders
 │   ├── linkedin_scraper.py  # LinkedIn guest-API transport/parsing (429 backoff, pagination)
 │   ├── ai_prompt.py         # Shared scoring prompt + parse/normalize (used by all scorers)
 │   ├── ai_local.py          # Local Claude/Codex CLI batch scoring
@@ -75,12 +76,18 @@ workflow's inline `from jobflow.db import …`, `wsgi:app`, and `jobflow.cli:app
 - `/settings` — per-user profile: eligibility, seniority, search terms, AI method (none/anthropic/local-cli), API key, model, pairing token
 - `/auth/login`, `/auth/google`, `/auth/google/callback`, `/auth/logout` — Google OAuth
 - `/api/linkedin/*` — feed data (jobs fragment, meta counts, delete, refresh)
-- `/api/scan/*` — background scan + GitHub Actions "Scan Now" trigger
+- `/api/scan/*` — background scan + GitHub Actions "Scan Now" trigger; `/api/scan/sources` lists the
+  sources (LinkedIn + GitHub new-grad READMEs in `job_boards.json`) with live per-source status
 - `/api/aiscore/*` — AI Score button: operator local subprocess, or server-side Anthropic run (per-user)
 - `/api/score/pending`, `/api/score/submit` — token-authed endpoints for the local-CLI client (login-gate exempt, scoped to the token's user)
 
 Application tracking, /boards, /scan, /tailor pages were removed from the web UI; `tracker.py` /
 `tailor.py` remain CLI-only.
+
+## Applied jobs
+Feed rows are struck through when a folder in `applied_dirs` (config.yaml, or `JOBFLOW_APPLIED_DIRS`)
+matches the job — by the `Source:` URL in the folder's `jd.txt`, or by the `YYYY-MM-DD_company_title`
+folder name. Operator only (the folders live on the operator's machine). See `jobflow/applied.py`.
 
 ## Scoring
 Multi-signal scoring (0–100%) via `filter.evaluate_job(job, profile=…)`. Scoring is **per-user**:

@@ -132,7 +132,7 @@ def apply(
         "variant": variant,
         "date": today,
     }
-    (output_dir / "metadata.json").write_text(json.dumps(metadata, indent=2))
+    (output_dir / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
 
     # Load base resume and master prompt
     console.print("\n[bold cyan]Step 3: Tailor resume[/bold cyan]")
@@ -144,7 +144,7 @@ def apply(
     prompt = build_tailor_prompt(job, base_tex, master_prompt)
     prompt_path = output_dir / "tailor_prompt.txt"
     output_dir.mkdir(parents=True, exist_ok=True)
-    prompt_path.write_text(prompt)
+    prompt_path.write_text(prompt, encoding="utf-8")
 
     console.print(f"\n[bold green]Tailoring prompt saved to:[/bold green] {prompt_path}")
     console.print(
@@ -169,7 +169,7 @@ def save(
     meta_path = Path(dir) / "metadata.json"
     meta = {}
     if meta_path.exists():
-        meta = json.loads(meta_path.read_text())
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
 
     # Use metadata values, with CLI overrides
     if not variant:
@@ -180,7 +180,7 @@ def save(
     score = meta.get("score", -1)
 
     if sections:
-        tailored = Path(sections).read_text()
+        tailored = Path(sections).read_text(encoding="utf-8")
     else:
         console.print("[bold]Paste the tailored LaTeX sections below (Ctrl+D when done):[/bold]")
         import sys
@@ -233,14 +233,14 @@ def save(
 
 @app.command()
 def scan(
-    platform: Optional[str] = typer.Option(None, "--platform", "-p", help="Scan specific platform: lever, greenhouse, ashby, linkedin, github"),
+    platform: Optional[str] = typer.Option(None, "--platform", "-p", help="Scan specific platform(s), comma-separated: linkedin, github"),
     hours: int = typer.Option(0, "--hours", "-h", help="Only show jobs posted within this many hours (0 = all)"),
     new_only: bool = typer.Option(False, "--new", "-n", help="Only show jobs not seen in previous scans"),
     save_results: bool = typer.Option(True, "--save/--no-save", help="Save relevant jobs to scan_results.json"),
 ):
     """Scan all job boards for new grad positions (APIs + LinkedIn + GitHub repos)."""
     config = load_config()
-    platforms = [platform] if platform else None
+    platforms = [p.strip() for p in platform.split(",") if p.strip()] if platform else None
 
     console.print("[bold]Scanning job boards for new grad / entry-level positions...[/bold]")
     results = scan_all_api_boards(config, platforms, max_age_hours=hours)
@@ -291,7 +291,7 @@ def scan(
         existing = []
         if results_path.exists():
             try:
-                existing = json.loads(results_path.read_text())
+                existing = json.loads(results_path.read_text(encoding="utf-8"))
             except (json.JSONDecodeError, ValueError):
                 existing = []
 
@@ -309,7 +309,7 @@ def scan(
         for i, entry in enumerate(existing, 1):
             entry["index"] = i
 
-        results_path.write_text(json.dumps(existing, indent=2))
+        results_path.write_text(json.dumps(existing, indent=2), encoding="utf-8")
         console.print(f"\n[green]Results saved to:[/green] {results_path} ({len(existing)} total jobs)")
 
         # Optional legacy AI scoring with Llama 4 Scout via Groq (only if
@@ -326,7 +326,7 @@ def scan(
                 if ai:
                     entry["ai_score"] = ai["ai_score"]
                     entry["ai_reason"] = ai["ai_reason"]
-            results_path.write_text(json.dumps(existing, indent=2))
+            results_path.write_text(json.dumps(existing, indent=2), encoding="utf-8")
             scored_count = len(url_to_ai)
             console.print(f"[green]AI scored {scored_count} new jobs[/green]")
         else:
@@ -356,7 +356,7 @@ def process(
         console.print("[red]No scan results found. Run 'jobflow scan' first.[/red]")
         raise typer.Exit(1)
 
-    with open(results_path) as f:
+    with open(results_path, encoding="utf-8") as f:
         jobs = json.load(f)
 
     if not jobs:
@@ -440,7 +440,8 @@ def init():
             "output_dir: data/output\n"
             "csv_path: data/applications.csv\n"
             "job_boards: config/job_boards.json\n"
-            "resume_prompt: resumes/prompt.md\n"
+            "resume_prompt: resumes/prompt.md\n",
+            encoding="utf-8",
         )
         console.print(f"[green]Created:[/green] {config_path}")
     else:
@@ -464,12 +465,13 @@ def init():
 @app.command()
 def web(
     port: int = typer.Option(8080, "--port", "-p", help="Port to run the web dashboard on"),
+    host: str = typer.Option("127.0.0.1", "--host", help="Interface to bind (0.0.0.0 exposes the debug server to your network)"),
 ):
     """Launch the JobFlow web dashboard."""
     from .web import create_app
     console.print(f"\n[bold green]Starting JobFlow Dashboard at http://localhost:{port}[/bold green]\n")
     webapp = create_app()
-    webapp.run(host="0.0.0.0", port=port, debug=True)
+    webapp.run(host=host, port=port, debug=True)
 
 
 @app.command("normalize-urls")
@@ -524,7 +526,7 @@ CREDENTIALS_PATH = Path.home() / ".jobflow" / "credentials.json"
 def _load_credentials() -> dict:
     import json
     try:
-        return json.loads(CREDENTIALS_PATH.read_text())
+        return json.loads(CREDENTIALS_PATH.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return {}
 
@@ -537,7 +539,7 @@ def login(
     """Pair this machine with your JobFlow account so `jobflow score` can sync."""
     import json
     CREDENTIALS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    CREDENTIALS_PATH.write_text(json.dumps({"server": server.rstrip("/"), "token": token}))
+    CREDENTIALS_PATH.write_text(json.dumps({"server": server.rstrip("/"), "token": token}), encoding="utf-8")
     try:
         CREDENTIALS_PATH.chmod(0o600)
     except OSError:

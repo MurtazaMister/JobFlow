@@ -184,6 +184,41 @@ footer .foot {
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* Scan Now sources popover: what a scan aggregates, with live status */
+.scan-wrap { position: relative; display: inline-flex; }
+.scan-sources {
+    position: absolute; top: calc(100% + 8px); right: 0; z-index: var(--z-modal);
+    width: min(340px, calc(100vw - 32px));
+    background: var(--panel-2); border: 1px solid var(--hairline-strong);
+    border-radius: 10px; box-shadow: var(--shadow); padding: 10px 12px;
+    opacity: 0; transform: translateY(-4px); pointer-events: none;
+    transition: opacity 0.15s ease, transform 0.15s ease;
+}
+.scan-wrap:hover .scan-sources,
+.scan-wrap:focus-within .scan-sources,
+.scan-sources.open { opacity: 1; transform: none; pointer-events: auto; }
+.scan-sources h4 {
+    font-size: 0.7rem; font-weight: 600; color: var(--text-3);
+    letter-spacing: 0.04em; text-transform: uppercase; margin-bottom: 6px;
+}
+.scan-sources ul { list-style: none; margin: 0; padding: 0; }
+.scan-sources li {
+    display: grid; grid-template-columns: 16px 1fr auto; align-items: center;
+    gap: 8px; padding: 5px 0; font-size: 0.78rem; color: var(--text-2);
+    border-top: 1px solid var(--hairline);
+}
+.scan-sources li:first-child { border-top: none; }
+.scan-sources li a { color: var(--text); }
+.scan-sources li .src-note { display: block; font-size: 0.68rem; color: var(--text-3); }
+.scan-sources .src-n { font-family: var(--font-data); font-size: 0.7rem; color: var(--text-3); white-space: nowrap; }
+.src-ico { display: inline-flex; justify-content: center; font-size: 0.75rem; line-height: 1; }
+.src-ico .spinner { width: 10px; height: 10px; color: var(--brass); }
+.src-done .src-ico { color: var(--grow); }
+.src-error .src-ico { color: var(--rose); }
+.src-pending .src-ico, .src-unavailable .src-ico { color: var(--text-3); }
+.src-unavailable a { color: var(--text-3) !important; }
+@media (prefers-reduced-motion: reduce) { .scan-sources { transition: none; } }
+
 /* ── Forms ─────────────────────────────────────────────────────── */
 label { display: block; font-size: 0.78rem; font-weight: 600; color: var(--text-2); margin-bottom: 5px; }
 input[type="text"], input[type="number"], input[type="search"],
@@ -475,6 +510,19 @@ tr.dismissing { animation: dismiss-out 0.26s ease forwards !important; }
 .tag-other { background: color-mix(in srgb, var(--text-3) 14%, transparent); color: var(--text-2); }
 .tag-h1b { background: var(--grow-soft); color: var(--grow); }
 .tag-exp { background: none; padding: 0; color: var(--text-3); font-weight: 400; font-size: 0.73rem; }
+.tag-src { background: none; border: 1px solid var(--hairline-strong); color: var(--text-3); font-weight: 500; }
+.tag-applied { background: var(--brass-soft); color: var(--brass); text-decoration: none; }
+
+/* Applied (has a tailored-application folder): struck through, receded */
+.jobs-table tbody tr.is-applied .role-title a,
+.jobs-table tbody tr.is-applied .role-title .title-text,
+.jobs-table tbody tr.is-applied .role-sub .co {
+    text-decoration: line-through; text-decoration-color: var(--text-3);
+    text-decoration-thickness: 1px;
+}
+.jobs-table tbody tr.is-applied .role-title a,
+.jobs-table tbody tr.is-applied .role-sub,
+.jobs-table tbody tr.is-applied .match-cell { color: var(--text-3); opacity: 0.75; }
 
 /* Match cell: % + micro-bar */
 .match-cell { min-width: 76px; }

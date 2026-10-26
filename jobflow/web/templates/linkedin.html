@@ -21,11 +21,17 @@
             <button class="btn btn-ghost" id="refresh-btn" onclick="refreshFeed(this)">
                 Refresh
             </button>
-            <button class="btn" id="scan-btn" onclick="runScanWorkflow(this)"
-                    title="Trigger the GitHub Actions scan workflow"
-                    {% if workflow_running %}disabled aria-busy="true"{% endif %}>
-                {% if workflow_running %}<span class="spinner"></span> Scanning…{% else %}Scan Now{% endif %}
-            </button>
+            <div class="scan-wrap">
+                <button class="btn" id="scan-btn" onclick="runScanWorkflow(this)"
+                        aria-describedby="scan-sources"
+                        {% if workflow_running %}disabled aria-busy="true"{% endif %}>
+                    {% if workflow_running %}<span class="spinner"></span> Scanning…{% else %}Scan Now{% endif %}
+                </button>
+                <div class="scan-sources{% if workflow_running %} open{% endif %}" id="scan-sources" role="status" aria-live="polite">
+                    <h4>Sources</h4>
+                    <ul id="scan-sources-list"><li><span class="src-ico">…</span><span>Loading sources</span><span></span></li></ul>
+                </div>
+            </div>
             <button class="btn btn-primary" id="ai-score-btn" onclick="openAiModal()">
                 ✦ AI Score
             </button>
@@ -351,6 +357,49 @@ function refreshFeed(btn) {
 
 /* ── Scan Now (triggers + tracks GitHub Actions workflow) ── */
 var scanPollTimer = null;
+var scanPanelCloseTimer = null;
+
+/* Sources popover: one row per source with a live status icon. Shown on
+   hover/focus of Scan Now, and held open while a scan runs. */
+function escHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
+        return {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c];
+    });
+}
+
+function renderScanSources(sources) {
+    var list = document.getElementById('scan-sources-list');
+    if (!list || !sources) return;
+    var icons = {pending: '○', remote: '<span class="spinner"></span>', running: '<span class="spinner"></span>',
+                 done: '✓', error: '✕', unavailable: '–'};
+    list.innerHTML = sources.map(function(src) {
+        var st = src.status || 'pending';
+        var right = '';
+        if (st === 'done') right = (src.count || 0) + ' found';
+        else if (st === 'running') right = 'scanning';
+        else if (st === 'remote') right = 'on GitHub';
+        else if (st === 'pending') right = 'queued';
+        var note = src.error || src.note || '';
+        var name = src.url
+            ? '<a href="' + escHtml(src.url) + '" target="_blank" rel="noopener">' + escHtml(src.label) + '</a>'
+            : escHtml(src.label);
+        return '<li class="src-' + st + '"><span class="src-ico" aria-label="' + st + '">' + (icons[st] || '○') +
+               '</span><span>' + name + (note ? '<span class="src-note">' + escHtml(note) + '</span>' : '') +
+               '</span><span class="src-n">' + right + '</span></li>';
+    }).join('');
+}
+
+function loadScanSources() {
+    fetch('/api/scan/sources').then(function(r) { return r.json(); })
+        .then(function(d) { renderScanSources(d.sources); }).catch(function() {});
+}
+
+function setScanPanelOpen(open) {
+    var panel = document.getElementById('scan-sources');
+    if (!panel) return;
+    clearTimeout(scanPanelCloseTimer);
+    panel.classList.toggle('open', open);
+}
 
 function scanBtnLoading(loading, label) {
     var btn = document.getElementById('scan-btn');
@@ -372,7 +421,10 @@ function runScanWorkflow(btn) {
         return r.json().then(function(data) { return {status: r.status, data: data}; });
     }).then(function(res) {
         if (res.data.ok || res.status === 409) {
-            showToast('Scan started on GitHub Actions — this runs for a few minutes.');
+            showToast(res.data.mode === 'local'
+                ? 'Scanning all sources on this machine — this runs for a few minutes.'
+                : 'Scan started on GitHub Actions — this runs for a few minutes.');
+            setScanPanelOpen(true);
             scanBtnLoading(true, 'Scanning…');
             pollScanWorkflow();
         } else {
@@ -388,14 +440,18 @@ function runScanWorkflow(btn) {
 function pollScanWorkflow() {
     if (scanPollTimer) return;           // only one poller at a time
     scanBtnLoading(true, 'Scanning…');
+    setScanPanelOpen(true);
     scanPollTimer = setInterval(function() {
         fetch('/api/scan/workflow/status').then(function(r) {
             return r.json();
         }).then(function(s) {
+            renderScanSources(s.sources);
             if (s.running) return;       // still going — keep the spinner
             clearInterval(scanPollTimer);
             scanPollTimer = null;
             scanBtnLoading(false);
+            // Leave the final per-source tallies up briefly, then fold away.
+            scanPanelCloseTimer = setTimeout(function() { setScanPanelOpen(false); }, 8000);
             if (s.error) {
                 showToast('Scan: ' + s.error, 'error');
             } else if (s.conclusion === 'success') {
@@ -410,6 +466,7 @@ function pollScanWorkflow() {
     }, 5000);
 }
 
+document.addEventListener('DOMContentLoaded', loadScanSources);
 {% if workflow_running %}
 document.addEventListener('DOMContentLoaded', pollScanWorkflow);
 {% endif %}

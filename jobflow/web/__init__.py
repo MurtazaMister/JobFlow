@@ -62,6 +62,9 @@ scan_state = {
     "total": 0,
     "relevant": 0,
     "skipped": 0,
+    # Per-source progress for the Scan Now panel: [{key, label, url, status,
+    # note, count, error}] with status pending/running/done/error/unavailable.
+    "sources": [],
 }
 
 # Shared state for the GitHub Actions scan workflow trigger. One dispatch is
@@ -74,6 +77,7 @@ workflow_state = {
     "conclusion": "",    # success / failure / cancelled (when completed)
     "url": "",
     "error": None,
+    "mode": "",          # github / local (see _scan_mode)
     "started_at": None,
     "finished_at": None,
 }
@@ -169,8 +173,12 @@ def _run_ai_score(root: Path, engine: str, hours: float, limit: int, rescore: bo
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             bufsize=1,
-            env={**os.environ, "PATH": _augmented_path()},
+            # PYTHONUTF8: the child prints job titles; Windows' cp1252 pipe
+            # encoding would crash it on non-Latin characters.
+            env={**os.environ, "PATH": _augmented_path(), "PYTHONUTF8": "1"},
         )
         ai_state["_process"] = proc
 
@@ -460,7 +468,7 @@ def create_app():
         if not scan_results_path.exists():
             return
         try:
-            scan_data = json.loads(scan_results_path.read_text())
+            scan_data = json.loads(scan_results_path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, ValueError):
             return
         with STORE_LOCK:
@@ -495,7 +503,18 @@ def create_app():
 
     # ── Feed helpers ─────────────────────────────────────────────
 
-    SOURCE = "linkedin"
+    # Source filter for the feed queries. Empty = every source (LinkedIn plus
+    # the GitHub new-grad repos); set e.g. "linkedin" to narrow the feed.
+    SOURCE = ""
+
+    def _annotate_applied(jobs):
+        """Mark jobs that have a tailored-application folder (operator only —
+        the folders live on the operator's machine)."""
+        from ..applied import annotate
+        from ..db import DEFAULT_USER_ID
+        if g.get("user_id", DEFAULT_USER_ID) != DEFAULT_USER_ID:
+            return jobs
+        return annotate(jobs, config)
 
     def _feed_args():
         try:
@@ -697,7 +716,7 @@ def create_app():
         meta = _feed_meta(args)
         resp = make_response(render_template(
             "_partials/linkedin_tbody.html",
-            jobs=jobs,
+            jobs=_annotate_applied(jobs),
         ))
         resp.headers["X-Counts"] = json.dumps(meta["counts"])
         resp.headers["X-Level-Counts"] = json.dumps(meta["level_counts"])
@@ -800,6 +819,19 @@ def create_app():
             return jsonify({"ok": False, "error": "A scan is already running."}), 409
 
         gh = _which_cli("gh")
+        if _scan_mode(gh) == "local":
+            # Scan in-process (same LinkedIn scan as CI) and merge straight into
+            # this server's store — for local installs whose DB the GitHub
+            # workflow doesn't feed, or machines without the gh CLI.
+            if scan_state["running"]:
+                return jsonify({"ok": False, "error": "A scan is already running."}), 409
+            workflow_state.update({
+                "running": True, "run_id": None, "status": "in_progress",
+                "conclusion": "", "url": "", "error": None, "mode": "local",
+                "started_at": time.time(), "finished_at": None,
+            })
+            threading.Thread(target=_run_local_scan_tracked, args=(config,), daemon=True).start()
+            return jsonify({"ok": True, "running": True, "mode": "local"})
         if not gh:
             return jsonify({
                 "ok": False,
@@ -823,7 +855,7 @@ def create_app():
         dispatch_ts = time.time()
         workflow_state.update({
             "running": True, "run_id": None, "status": "queued",
-            "conclusion": "", "url": "", "error": None,
+            "conclusion": "", "url": "", "error": None, "mode": "github",
             "started_at": dispatch_ts, "finished_at": None,
         })
         threading.Thread(
@@ -835,7 +867,13 @@ def create_app():
 
     @app.route("/api/scan/workflow/status")
     def api_scan_workflow_status():
-        return jsonify(workflow_state)
+        return jsonify({**workflow_state, "sources": _scan_sources_view(config)})
+
+    @app.route("/api/scan/sources")
+    def api_scan_sources():
+        """Sources Scan Now aggregates from (with live progress mid-scan)."""
+        return jsonify({"sources": _scan_sources_view(config),
+                        "mode": _scan_mode(_which_cli("gh"))})
 
     @app.route("/api/scan/status")
     def api_scan_status():
@@ -845,6 +883,7 @@ def create_app():
             "total": scan_state.get("total", 0),
             "relevant": scan_state.get("relevant", 0),
             "skipped": scan_state.get("skipped", 0),
+            "sources": scan_state.get("sources", []),
         })
 
     # ── AI Scoring Runner (local CLI, no API key) ────────────────
@@ -991,6 +1030,59 @@ def create_app():
     return app
 
 
+def _scan_mode(gh: str | None) -> str:
+    """Where "Scan Now" runs: "github" (dispatch the Actions workflow) or
+    "local" (scan in this process). JOBFLOW_SCAN_MODE overrides; otherwise
+    GitHub when the gh CLI is available."""
+    mode = os.environ.get("JOBFLOW_SCAN_MODE", "").strip().lower()
+    if mode in ("github", "local"):
+        return mode
+    return "github" if gh else "local"
+
+
+# Platforms the in-process Scan Now covers (same set as the CI workflow).
+LOCAL_SCAN_PLATFORMS = ["linkedin", "github"]
+
+
+def _scan_sources_view(config):
+    """Per-source state for the UI: live progress while a local scan runs or
+    after it finished; otherwise the configured list. A GitHub Actions scan
+    runs remotely, so its sources show as "remote" while it is in flight."""
+    if scan_state.get("sources"):
+        return scan_state["sources"]
+    from ..scanner import scan_sources
+    try:
+        sources = scan_sources(config, LOCAL_SCAN_PLATFORMS)
+    except Exception:
+        return []
+    if workflow_state["running"] and workflow_state.get("mode") == "github":
+        for src in sources:
+            if src["status"] == "pending":
+                src["status"] = "remote"
+    return sources
+
+
+def _run_local_scan_tracked(config):
+    """Run the CI-equivalent LinkedIn scan in-process, reporting through
+    ``workflow_state`` so the Scan Now button's poller works unchanged."""
+    try:
+        hours = int(os.environ.get("JOBFLOW_SCAN_HOURS", "24") or 24)
+    except ValueError:
+        hours = 24
+    try:
+        _run_scan(config, LOCAL_SCAN_PLATFORMS, hours, False)
+        if scan_state.get("error"):
+            workflow_state["error"] = scan_state["error"]
+        else:
+            workflow_state["conclusion"] = "success"
+    except Exception as e:
+        workflow_state["error"] = str(e)
+    finally:
+        workflow_state["status"] = "completed"
+        workflow_state["running"] = False
+        workflow_state["finished_at"] = time.time()
+
+
 def _run_scan(config, platforms, hours, new_only):
     """Run scan in background thread.
 
@@ -1001,13 +1093,25 @@ def _run_scan(config, platforms, hours, new_only):
     are saved to scan_results.json and merged into the store. AI scoring is
     the real quality gate — algo score is the fallback.
     """
-    from ..scanner import scan_all_api_boards, load_seen_jobs, save_seen_jobs, deduplicate_results
+    from ..scanner import (scan_all_api_boards, scan_sources, load_seen_jobs,
+                           save_seen_jobs, deduplicate_results)
 
     scan_state["running"] = True
     scan_state["error"] = None
+    try:
+        scan_state["sources"] = scan_sources(config, platforms)
+    except Exception:
+        scan_state["sources"] = []
+    by_key = {s["key"]: s for s in scan_state["sources"]}
+
+    def on_source(key, status, count=None, error=None):
+        src = by_key.get(key)
+        if src is not None:
+            src.update(status=status, count=count, error=error)
 
     try:
-        results = scan_all_api_boards(config, platforms, max_age_hours=hours)
+        results = scan_all_api_boards(config, platforms, max_age_hours=hours,
+                                      on_source=on_source)
 
         if new_only:
             seen = load_seen_jobs(config)
@@ -1049,7 +1153,7 @@ def _run_scan(config, platforms, hours, new_only):
 
         results_path = config["output_dir"] / "scan_results.json"
         config["output_dir"].mkdir(parents=True, exist_ok=True)
-        results_path.write_text(json.dumps(output, indent=2))
+        results_path.write_text(json.dumps(output, indent=2), encoding="utf-8")
 
         # Merge into store so new jobs appear in the feed. Prefer DB when it is
         # configured and reachable, then fall back to JSON.

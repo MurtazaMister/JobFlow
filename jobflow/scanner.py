@@ -13,7 +13,7 @@ Platform differences:
     - Greenhouse:  REST API, JSON, ISO timestamps, no auth needed
     - Ashby:       REST API, JSON, ISO timestamps, no auth needed
     - LinkedIn:    guest API scraper (jobflow.linkedin_scraper), two-phase
-    - GitHub:      Raw README markdown parsing (SimplifyJobs, Jobright repos)
+    - GitHub:      Raw README table parsing (SimplifyJobs, SpeedyApply, Jobright repos)
 
 Deduplication (seen_jobs.json):
     Tracks previously seen job URLs with timestamps. Entries expire after
@@ -292,14 +292,52 @@ def load_job_boards(config: dict) -> dict:
     path = config.get("job_boards")
     if not path or not Path(path).exists():
         raise FileNotFoundError(f"JobBoards_Links.json not found at {path}")
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         return json.load(f)
+
+
+# Sources we know about but can't scan automatically. They're listed in the
+# Scan Now panel so it's clear what is (and isn't) being aggregated.
+UNAVAILABLE_SOURCES = [
+    {"key": "notify_careers", "label": "notify.careers",
+     "url": "https://app.notify.careers/postings",
+     "note": "Login-only site with no public API; not integrated yet"},
+    {"key": "instagram_zero2sudo", "label": "Instagram · @zero2sudo stories",
+     "url": "https://www.instagram.com/zero2sudo/",
+     "note": "Stories need a logged-in Instagram session; not integrated yet"},
+]
+
+
+def scan_sources(config: dict, platforms: list[str] | None = None) -> list[dict]:
+    """Every source a scan aggregates from, in scan order, for the UI.
+
+    Each entry: {key, label, url, status, note}. Status starts "pending" for
+    sources the scan will hit and "unavailable" for the known-but-unscannable
+    ones above.
+    """
+    sources = []
+    if not platforms or "linkedin" in platforms:
+        sources.append({"key": "linkedin", "label": "LinkedIn (guest search)",
+                        "url": "https://www.linkedin.com/jobs/", "status": "pending", "note": ""})
+    if not platforms or "github" in platforms:
+        try:
+            repos = (load_job_boards(config).get("new_grad_aggregators", {})
+                     .get("github_repos", {}).get("repos", {}))
+        except FileNotFoundError:
+            repos = {}
+        for key, info in repos.items():
+            if info.get("raw_readme"):
+                sources.append({"key": key, "label": info.get("label", key),
+                                "url": info.get("url", ""), "status": "pending", "note": ""})
+    sources.extend({**s, "status": "unavailable"} for s in UNAVAILABLE_SOURCES)
+    return sources
 
 
 def scan_all_api_boards(
     config: dict,
     platforms: list[str] | None = None,
     max_age_hours: int = 0,
+    on_source=None,
 ) -> list[tuple[JobPosting, 'FilterResult']]:
     """Main scan orchestrator — scans all platforms and scores every job.
 
@@ -314,6 +352,8 @@ def scan_all_api_boards(
                        LinkedIn then uses a 4h window). Passed to LinkedIn's
                        f_TPR time filter and used for timestamp filtering on
                        ATS platforms.
+        on_source: Optional ``(key, status, count=None, error=None)`` progress
+                   callback, keyed like scan_sources().
 
     Returns:
         List of (JobPosting, FilterResult) tuples — includes both passing and
@@ -329,11 +369,25 @@ def scan_all_api_boards(
 
     # Scan LinkedIn via the guest API (jobflow.linkedin_scraper)
     if not platforms or "linkedin" in platforms:
-        console.print(f"\n[bold cyan]Scanning LinkedIn ({len(LINKEDIN_SEARCH_TERMS)} search terms)...[/bold cyan]")
-        known = _known_job_urls(config)
-        if known:
-            console.print(f"  [dim]{len(known)} stored jobs will be skipped if re-listed[/dim]")
-        jobs = scan_linkedin(max_age_hours, known_urls=known)
+        terms = merge_search_terms(_user_search_terms())
+        console.print(f"\n[bold cyan]Scanning LinkedIn ({len(terms)} search terms)...[/bold cyan]")
+        if on_source:
+            on_source("linkedin", "running")
+        try:
+            known = _known_job_urls(config)
+            if known:
+                console.print(f"  [dim]{len(known)} stored jobs will be skipped if re-listed[/dim]")
+            jobs = scan_linkedin(max_age_hours, known_urls=known, search_terms=terms)
+        except Exception as e:
+            # With a progress callback, one failed source shouldn't sink the
+            # whole scan; without one (CLI), keep the original fail-loud path.
+            if not on_source:
+                raise
+            on_source("linkedin", "error", error=str(e))
+            jobs = []
+        else:
+            if on_source:
+                on_source("linkedin", "done", count=len(jobs))
         console.print(f"  [green]{len(jobs)} new jobs[/green]")
         for job in jobs:
             result = evaluate_job(job)
@@ -345,8 +399,37 @@ def scan_all_api_boards(
         gh_repos = ng.get("github_repos", {})
         if gh_repos:
             console.print("\n[bold cyan]Scanning GitHub new-grad repos...[/bold cyan]")
-            jobs = scan_github_repos(gh_repos, keywords)
+            # Hold each repo at "running" until its JDs are fetched below.
+            parsed: dict[str, int] = {}
+
+            def repo_progress(key, status, count=None, error=None):
+                if status == "done":
+                    parsed[key] = count or 0
+                    status = "running"
+                if on_source:
+                    on_source(key, status, count=count, error=error)
+
+            jobs = scan_github_repos(gh_repos, keywords, on_source=repo_progress)
             console.print(f"  [green]{len(jobs)} matches[/green]")
+
+            # Like LinkedIn: jobs already stored with a real JD are skipped, so
+            # each posting's apply page is fetched once, not every scan.
+            known = _known_job_urls(config)
+            if known:
+                from .linkedin_store import normalize_url
+                jobs = [j for j in jobs if normalize_url(j.url) not in known]
+            console.print(f"  [dim]Fetching job descriptions for {len(jobs)} new postings...[/dim]")
+            from .jd_fetch import enrich_descriptions
+            fetched, attempted = enrich_descriptions(jobs)
+            console.print(f"  [green]{fetched}/{attempted} descriptions fetched[/green]")
+
+            new_by_source: dict[str, int] = {}
+            for j in jobs:
+                new_by_source[j.source] = new_by_source.get(j.source, 0) + 1
+            for key in parsed:
+                src = gh_repos.get("repos", {}).get(key, {}).get("source", "github")
+                if on_source:
+                    on_source(key, "done", count=new_by_source.get(src, 0))
             for job in jobs:
                 result = evaluate_job(job)
                 all_results.append((job, result))
@@ -370,6 +453,10 @@ LINKEDIN_SEARCH_TERMS = [
     "Entry Level Jobs 2026",
     "New Grad Machine Learning Engineer",
 ]
+
+# Upper bound on searches per scan (defaults + users' Settings terms) so a long
+# list can't starve the description-fetch budget below.
+MAX_SEARCH_TERMS = 15
 
 RESULTS_PER_TERM = 200
 # Cap on description fetches per scan so a cold store can't blow past the CI
@@ -428,18 +515,59 @@ def _known_job_urls(config: dict) -> set[str]:
         return set()
 
 
-def scan_linkedin(max_age_hours: int = 0, known_urls: set[str] | None = None) -> list[JobPosting]:
+def merge_search_terms(user_terms) -> list[str]:
+    """The default searches plus users' Settings terms, deduped
+    case-insensitively in order, capped at MAX_SEARCH_TERMS."""
+    terms, seen = [], set()
+    for term in [*LINKEDIN_SEARCH_TERMS, *user_terms]:
+        term = (term or "").strip()
+        if term and term.lower() not in seen:
+            seen.add(term.lower())
+            terms.append(term)
+    return terms[:MAX_SEARCH_TERMS]
+
+
+def _user_search_terms() -> list[str]:
+    """Search terms saved in Settings by every active user (DB backend only).
+
+    The posting pool is shared, so one scan covers everyone's searches; each
+    user's own profile then scores the results.
+    """
+    if not os.environ.get("DATABASE_URL"):
+        return []
+    try:
+        from . import db
+        conn = db.get_conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT p.search_terms FROM user_profiles p "
+                    "JOIN users u ON u.id = p.user_id WHERE u.is_active ORDER BY u.id"
+                )
+                return [t for (terms,) in cur.fetchall() for t in (terms or [])
+                        if isinstance(t, str)]
+        finally:
+            db.put_conn(conn)
+    except Exception as e:
+        console.print(f"  [yellow]Could not load Settings search terms ({e}); using defaults[/yellow]")
+        return []
+
+
+def scan_linkedin(max_age_hours: int = 0, known_urls: set[str] | None = None,
+                  search_terms: list[str] | None = None) -> list[JobPosting]:
     """Scan LinkedIn's guest API. Returns NEW jobs only (not in known_urls).
 
     Known jobs are skipped entirely rather than re-emitted: merging a job
     without its description would let the merge's per-user re-score overwrite
     a good algo score with one computed from an empty JD, and new users get
     the existing posting pool via db.backfill_user at signup anyway.
+    ``search_terms`` defaults to LINKEDIN_SEARCH_TERMS.
     """
     from . import linkedin_scraper as li
     from .linkedin_store import normalize_url
 
     known_urls = known_urls or set()
+    search_terms = search_terms or LINKEDIN_SEARCH_TERMS
     # Default to a 4h window when no limit is specified — matches the CI cron
     # (every 30 min with --hours 4); anything older is already in the store,
     # and a wider window just burns request budget re-listing known jobs.
@@ -452,7 +580,7 @@ def scan_linkedin(max_age_hours: int = 0, known_urls: set[str] | None = None) ->
     deadline = time.monotonic() + SCAN_TIME_BUDGET_S
 
     # Phase 1 — listings (cheap: ~10 jobs per request).
-    for i, term in enumerate(LINKEDIN_SEARCH_TERMS):
+    for i, term in enumerate(search_terms):
         if time.monotonic() > deadline:
             console.print("  [yellow]Scan time budget reached — skipping remaining search terms.[/yellow]")
             break
@@ -472,7 +600,7 @@ def scan_linkedin(max_age_hours: int = 0, known_urls: set[str] | None = None) ->
         ]
         console.print(f"[green]{len(kept)} kept[/green] [dim]({len(found)} listed)[/dim]")
         listings.extend(kept)
-        if i < len(LINKEDIN_SEARCH_TERMS) - 1:
+        if i < len(search_terms) - 1:
             time.sleep(random.uniform(2, 4))
 
     if blocked:
@@ -560,73 +688,121 @@ def _fetch_text(url: str, retries: int = 3) -> str | None:
 # ---------------------------------------------------------------------------
 # GitHub new-grad repo scanner
 # ---------------------------------------------------------------------------
+# Community repos (SimplifyJobs, SpeedyApply, Jobright) keep new-grad postings
+# in README tables that are updated several times a day. Each table has a
+# company, role, location, apply link and an age column ("3d", "2mo", or a
+# "Oct 26" date). The READMEs hold months of history, so only rows younger
+# than README_MAX_AGE_DAYS are kept — the store's TTL would expire anything
+# older within a day anyway.
 
-def scan_github_repos(repos_config: dict, include_kw: list[str]) -> list[JobPosting]:
-    """Scan GitHub new-grad repos by parsing README markdown tables.
+README_MAX_AGE_DAYS = 7
 
-    These repos (SimplifyJobs, Jobright) maintain community-curated lists of
-    new grad job postings in README tables. We fetch the raw README and parse
-    the HTML or markdown tables to extract job entries. Closed positions
-    (marked with a lock emoji) are skipped.
+_MONTHS = {m: i for i, m in enumerate(
+    ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"], 1)}
+
+
+def scan_github_repos(repos_config: dict, include_kw: list[str],
+                      on_source=None) -> list[JobPosting]:
+    """Scan GitHub new-grad repos by parsing their README tables.
+
+    ``on_source(key, status, count=None, error=None)`` is called as each repo
+    starts ("running") and finishes ("done" / "error") so the web UI can show
+    per-source progress. Each repo's jobs carry the repo key's ``source`` tag
+    (e.g. "simplify"), falling back to "github".
     """
     repos = repos_config.get("repos", {})
     all_jobs = []
-    seen = set()
+    seen: set = set()
 
     for name, info in repos.items():
         raw_url = info.get("raw_readme", "")
         if not raw_url:
             continue
+        if on_source:
+            on_source(name, "running")
 
         console.print(f"  [dim]{name}...[/dim]", end=" ")
         md = _fetch_text(raw_url)
         if not md:
             console.print("[red]failed[/red]")
+            if on_source:
+                on_source(name, "error", error="README fetch failed")
             continue
 
-        jobs = _parse_github_readme(md, include_kw, seen)
+        jobs = _parse_github_readme(md, include_kw, seen, source=info.get("source", "github"))
         console.print(f"[green]{len(jobs)} entries[/green]")
+        if on_source:
+            on_source(name, "done", count=len(jobs))
         all_jobs.extend(jobs)
 
     return all_jobs
 
 
-def _parse_github_readme(md: str, include_kw: list[str], seen: set) -> list[JobPosting]:
-    """Parse job tables from SimplifyJobs (HTML <tr>/<td>) and Jobright (markdown |) READMEs.
+def _parse_age(text: str, now: datetime | None = None) -> datetime | None:
+    """Turn a README age cell ("0d", "3d", "2mo", "5h", "1w", "Oct 26") into a
+    UTC datetime. Returns None when the cell isn't an age."""
+    now = now or datetime.now(timezone.utc)
+    t = _strip_html(text).strip().lower()
+    m = re.fullmatch(r"(\d+)\s*(h|d|w|mo|y)", t)
+    if m:
+        n, unit = int(m.group(1)), m.group(2)
+        days = {"h": n / 24, "d": n, "w": n * 7, "mo": n * 30, "y": n * 365}[unit]
+        return now - timedelta(days=days)
+    m = re.fullmatch(r"([a-z]{3})\w*\s+(\d{1,2})", t)
+    if m and m.group(1) in _MONTHS:
+        try:
+            ts = now.replace(month=_MONTHS[m.group(1)], day=int(m.group(2)),
+                             hour=12, minute=0, second=0, microsecond=0)
+        except ValueError:
+            return None
+        if ts > now + timedelta(days=1):   # "Dec 30" seen in January → last year
+            ts = ts.replace(year=ts.year - 1)
+        return ts
+    return None
 
-    Two formats are supported because different repos use different table styles:
-    - SimplifyJobs: HTML tables with <tr>/<td> tags
-    - Jobright: Standard markdown pipe-delimited tables
+
+def _parse_github_readme(md: str, include_kw: list[str], seen: set,
+                         source: str = "github",
+                         max_age_days: int = README_MAX_AGE_DAYS) -> list[JobPosting]:
+    """Parse job tables from SimplifyJobs (HTML <tr>/<td>) and SpeedyApply /
+    Jobright (markdown |) READMEs.
+
+    Simplify marks extra roles at the same company with a "↳" company cell, so
+    the previous row's company is carried forward.
     """
-    jobs = []
+    rows: list[list[str]] = []
+    html_rows = re.findall(r'<tr>(.*?)</tr>', md, re.DOTALL)
+    for row in html_rows:
+        cells = re.findall(r'<td>(.*?)</td>', row, re.DOTALL)
+        if len(cells) >= 3:
+            rows.append(cells)
 
-    # Try HTML table format first (SimplifyJobs uses <tr>/<td>)
-    rows = re.findall(r'<tr>(.*?)</tr>', md, re.DOTALL)
-    if rows:
-        for row in rows:
-            cells = re.findall(r'<td>(.*?)</td>', row, re.DOTALL)
-            if len(cells) < 3:
-                continue
-            job = _parse_table_row(cells, seen)
-            if job:
-                jobs.append(job)
-        return jobs
-
-    # Fallback: markdown pipe-delimited tables (Jobright format)
     for line in md.split("\n"):
         line = line.strip()
-        if not line.startswith("|") or line.startswith("| ---") or line.startswith("| :---"):
+        if not line.startswith("|") or re.match(r"^\|\s*:?-{3,}", line):
             continue
-        if "| company" in line.lower() or "| role" in line.lower():
+        cols = [c.strip() for c in line.strip("|").split("|")]
+        if len(cols) < 3 or cols[0].lower() in ("company", "**company**"):
             continue
+        rows.append(cols)
 
-        cols = [c.strip() for c in line.split("|")]
-        cols = [c for c in cols if c]
-        if len(cols) < 3:
-            continue
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(days=max_age_days) if max_age_days > 0 else None
+    jobs = []
+    prev_company = ""
+    for cols in rows:
+        if _strip_html(cols[0]).strip() == "↳":
+            cols = [prev_company] + cols[1:]
+        else:
+            prev_company = cols[0]
 
-        job = _parse_table_row(cols, seen)
+        posted = _parse_age(cols[-1], now)
+        if cutoff and posted and posted < cutoff:
+            continue
+        job = _parse_table_row(cols, seen, source=source)
         if job:
+            if posted:
+                job.date_posted = posted.isoformat()
             jobs.append(job)
 
     return jobs
@@ -681,46 +857,39 @@ def _extract_apply_url(cols: list[str]) -> str:
     return ""
 
 
-def _parse_table_row(cols: list[str], seen: set) -> JobPosting | None:
+def _md_text(cell: str) -> str:
+    """Plain text of a README cell: markdown links → their text, HTML stripped."""
+    cell = re.sub(r'\[([^\]]*)\]\([^)]*\)', r'\1', cell)
+    cell = cell.replace("</br>", ", ").replace("<br>", ", ")
+    return re.sub(r"\s+", " ", _strip_html(cell)).strip(" *")
+
+
+def _parse_table_row(cols: list[str], seen: set, source: str = "github") -> JobPosting | None:
     """Parse a single table row (HTML or markdown) into a JobPosting."""
-    # Extract company name from links
-    company_raw = cols[0]
-    company_m = re.search(r'[>\]]([\w\s&.\'-]+)[<\[]', company_raw) or re.search(r'\[([^\]]+)\]', company_raw)
-    if company_m:
-        company = company_m.group(1).strip()
-    else:
-        company = _strip_html(company_raw).strip("* ")
-    company = company.strip("🔥 ").strip()
-
-    # Extract role
-    role_raw = cols[1]
-    role_m = re.search(r'\[([^\]]+)\]', role_raw)
-    role = role_m.group(1) if role_m else _strip_html(role_raw).strip()
-    role = role.strip("* ")
-
-    # Extract location
-    location_raw = cols[2] if len(cols) > 2 else ""
-    location = _strip_html(location_raw.replace("</br>", ", ")).strip()
-
-    # Extract application URL from the correct column
-    url = _extract_apply_url(cols)
-
     # Skip closed
     if any("🔒" in c for c in cols):
         return None
 
-    # Dedup
-    key = f"{company}_{role}".lower()
-    if key in seen:
-        return None
-    seen.add(key)
+    company = _md_text(cols[0]).replace("🔥", "").strip(" *")
+    role = _md_text(cols[1])
+    location = _md_text(cols[2]) if len(cols) > 2 else ""
+    # Simplify collapses multi-location rows into "<summary>4 locations</summary>A, B…"
+    location = re.sub(r"^\d+ locations\s*", "", location)
 
+    if not company or not role:
+        return None
     # Must be SWE-related
     if not _is_swe_role(role):
         return None
 
-    if not company or not role:
+    # Extract application URL from the correct column
+    url = _extract_apply_url(cols)
+
+    # Dedup across repos: same posting URL, or same company+role+location
+    key = url.lower() if url else f"{company}_{role}_{location}".lower()
+    if key in seen:
         return None
+    seen.add(key)
 
     return JobPosting(
         url=url,
@@ -728,7 +897,7 @@ def _parse_table_row(cols: list[str], seen: set) -> JobPosting | None:
         company=company,
         location=location,
         description=f"{role} at {company}. Location: {location}",
-        source="github",
+        source=source,
     )
 
 
@@ -759,7 +928,7 @@ def load_seen_jobs(config: dict) -> dict[str, str]:
     path = config["output_dir"] / "seen_jobs.json"
     if not path.exists():
         return {}
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         data = json.load(f)
     # Backward compat: convert old list format to dict with current timestamp
     if isinstance(data, list):
@@ -784,7 +953,7 @@ def save_seen_jobs(config: dict, seen: dict[str, str]) -> None:
             pass
     path = config["output_dir"] / "seen_jobs.json"
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         json.dump(dict(sorted(seen.items())), f, indent=2)
 
 
