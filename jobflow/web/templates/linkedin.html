@@ -1000,8 +1000,12 @@ function applyFeedMeta(meta) {
         }
     });
 
-    if (counts.Recommended !== undefined) tweenStat(document.getElementById('stat-rec'), counts.Recommended);
-    if (counts.FAANG !== undefined) tweenStat(document.getElementById('stat-faang'), counts.FAANG);
+    // Stat tiles show all-time totals, so they don't shift with the time range.
+    if (meta.stat_counts) {
+        tweenStat(document.getElementById('stat-rec'), meta.stat_counts.Recommended || 0);
+        tweenStat(document.getElementById('stat-faang'), meta.stat_counts.FAANG || 0);
+        tweenStat(document.getElementById('stat-total'), meta.stat_counts.All || 0);
+    }
 
     var summaryEl = document.getElementById('li-summary');
     if (summaryEl && meta.total !== undefined) {
@@ -1021,11 +1025,6 @@ function applyFeedMeta(meta) {
         el = document.getElementById('tc-yesterday'); if (el) el.textContent = tc.yesterday || 0;
         tweenStat(document.getElementById('stat-hour'), tc.this_hour || 0);
         tweenStat(document.getElementById('stat-today'), tc.today || 0);
-    }
-    if (meta.total !== undefined && !document.getElementById('filter-status').value &&
-        !document.getElementById('filter-level').value && !document.getElementById('filter-time').value &&
-        !document.getElementById('filter-q').value) {
-        tweenStat(document.getElementById('stat-total'), meta.total);
     }
     if (meta.buckets) {
         BUCKET_DATA = meta.buckets;
@@ -1048,6 +1047,10 @@ function metaFromHeaders(resp) {
     try {
         var bucketStr = resp.headers.get('X-Buckets');
         if (bucketStr) meta.buckets = JSON.parse(bucketStr);
+    } catch(e) {}
+    try {
+        var statStr = resp.headers.get('X-Stat-Counts');
+        if (statStr) meta.stat_counts = JSON.parse(statStr);
     } catch(e) {}
     return meta;
 }

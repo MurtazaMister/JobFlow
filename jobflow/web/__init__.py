@@ -565,19 +565,32 @@ def create_app():
             "total": fc["status"].get("All", 0),
         }
         if args["include_time_meta"]:
-            ok, time_counts = _try_db(lambda db: db.get_time_counts(
-                user_id=g.user_id,
-                tz_offset=args["tz_offset"], time_range=args["time_range"], source=SOURCE,
+            ok, res = _try_db(lambda db: (
+                db.get_time_counts(
+                    user_id=g.user_id,
+                    tz_offset=args["tz_offset"], time_range=args["time_range"], source=SOURCE,
+                ),
+                db.get_status_counts(user_id=g.user_id, source=SOURCE),
             ))
-            if not ok:
+            if ok:
+                time_counts, all_counts = res
+            else:
                 store = load_store(linkedin_store_path)
                 time_counts = get_time_counts(
                     store, tz_offset=args["tz_offset"], time_range=args["time_range"], source=SOURCE,
                 )
+                all_counts = get_status_counts(store, source=SOURCE)
             payload["time_counts"] = {
                 "this_hour": time_counts["this_hour"],
                 "today": time_counts["today"],
                 "yesterday": time_counts["yesterday"],
+            }
+            # All-time totals for the stat tiles, which stay put while the
+            # time range changes (chips and summary follow the filters).
+            payload["stat_counts"] = {
+                "Recommended": all_counts.get("Recommended", 0),
+                "FAANG": all_counts.get("FAANG", 0),
+                "All": all_counts.get("All", 0),
             }
             payload["buckets"] = time_counts.get("buckets", [])
         return payload
@@ -723,6 +736,7 @@ def create_app():
         if "time_counts" in meta:
             resp.headers["X-Time-Counts"] = json.dumps(meta["time_counts"])
             resp.headers["X-Buckets"] = json.dumps(meta.get("buckets", []))
+            resp.headers["X-Stat-Counts"] = json.dumps(meta["stat_counts"])
         resp.headers["X-Total"] = str(meta["total"])
         resp.headers["X-Displayed"] = str(len(jobs))
         return resp
