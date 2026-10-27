@@ -67,11 +67,11 @@
 
     <!-- ── Stat strip ── -->
     <div class="stat-strip">
-        <button class="stat" data-stat="hour" onclick="setTime('hour')" title="Jobs found in the last hour">
+        <button class="stat" data-stat="hour" onclick="setTimeTile('hour')" title="Jobs found in the last hour">
             <span class="k">This Hour</span>
             <span class="v" id="stat-hour">{{ time_counts.get('this_hour', 0) }}</span>
         </button>
-        <button class="stat active" data-stat="today" onclick="setTime('today')" title="Jobs found since midnight">
+        <button class="stat active" data-stat="today" onclick="setTimeTile('today')" title="Jobs found since midnight">
             <span class="k">Today</span>
             <span class="v" id="stat-today">{{ time_counts.get('today', 0) }}</span>
         </button>
@@ -83,7 +83,7 @@
             <span class="k">FAANG</span>
             <span class="v" id="stat-faang">{{ counts.get('FAANG', 0) }}</span>
         </button>
-        <button class="stat" data-stat="total" onclick="setTime('')" title="All jobs in the store">
+        <button class="stat" data-stat="total" onclick="setTimeTile('')" title="All jobs in the store">
             <span class="k">All Jobs</span>
             <span class="v" id="stat-total">{{ counts.get('All', 0) }}</span>
         </button>
@@ -291,21 +291,30 @@ function setFilter(name, value) {
     if (name === 'status') document.getElementById('filter-level').value = '';
     if (name === 'level') document.getElementById('filter-status').value = '';
     document.getElementById('filter-' + name).value = value;
-    document.querySelectorAll('.chip').forEach(function(c) {
-        var isStatus = c.dataset.status !== undefined;
-        var isLevel = c.dataset.level !== undefined;
-        if (name === 'status' && isStatus) {
-            c.classList.toggle('active', c.dataset.status === value);
-            c.setAttribute('aria-pressed', c.dataset.status === value);
-        } else if (name === 'level' && isLevel) {
-            c.classList.toggle('active', c.dataset.level === value);
-            c.setAttribute('aria-pressed', c.dataset.level === value);
-        }
-        if (name === 'status' && isLevel) { c.classList.remove('active'); c.setAttribute('aria-pressed', 'false'); }
-        if (name === 'level' && isStatus) { c.classList.remove('active'); c.setAttribute('aria-pressed', 'false'); }
-    });
+    syncChips();
     syncStatTiles();
     triggerFilter();
+}
+
+function syncChips() {
+    var status = document.getElementById('filter-status').value;
+    var level = document.getElementById('filter-level').value;
+    document.querySelectorAll('.chip').forEach(function(c) {
+        var on = false;
+        if (c.dataset.status !== undefined) on = !level && c.dataset.status === status;
+        else if (c.dataset.level !== undefined) on = c.dataset.level === level;
+        c.classList.toggle('active', on);
+        c.setAttribute('aria-pressed', on);
+    });
+}
+
+/* Time stat tiles (This Hour / Today / All Jobs) are tabs alongside
+   Recommended / FAANG, so they drop any status/level filter too. */
+function setTimeTile(val) {
+    document.getElementById('filter-status').value = '';
+    document.getElementById('filter-level').value = '';
+    syncChips();
+    setTime(val);
 }
 
 function toggleSort(col) {
