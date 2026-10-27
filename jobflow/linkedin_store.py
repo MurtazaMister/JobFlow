@@ -27,6 +27,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlparse, urlunparse
 
+from .sponsors import SPONSOR_STATUS, is_top_sponsor
+
 _DISABLE_DB_VALUES = {"1", "true", "yes", "on"}
 
 
@@ -386,7 +388,7 @@ def get_filtered_jobs(
 
     Args:
         status: Filter by user status ("Tracking", "Applied", "Not Interested",
-                "Recommended" — the last is a virtual status based on AI score)
+                "Recommended", "FAANG" — virtual statuses: AI score / top H-1B sponsor company)
         level: Filter by detected seniority ("New Grad", "Entry", "Mid", "Unknown")
         query: Free-text search across company, title, location
         search_term: Filter by the LinkedIn search term that found this job
@@ -455,6 +457,9 @@ def get_filtered_jobs(
         if status == "Recommended":
             if not entry.get("recommended") or entry.get("status") == "Not Interested":
                 continue
+        elif status == SPONSOR_STATUS:
+            if not is_top_sponsor(entry.get("company", "")) or entry.get("status") == "Not Interested":
+                continue
         elif status and entry.get("status") != status:
             continue
 
@@ -507,6 +512,7 @@ def get_status_counts(store: dict, source: str = "") -> dict[str, int]:
     """Return count of jobs per status + recommended count."""
     counts = {s: 0 for s in LINKEDIN_STATUSES}
     counts["Recommended"] = 0
+    counts[SPONSOR_STATUS] = 0
     total = 0
     for job in store.get("jobs", {}).values():
         if source and (job.get("source") or "linkedin") != source:
@@ -517,6 +523,8 @@ def get_status_counts(store: dict, source: str = "") -> dict[str, int]:
             counts[s] += 1
         if job.get("recommended") and s != "Not Interested":
             counts["Recommended"] += 1
+        if s != "Not Interested" and is_top_sponsor(job.get("company", "")):
+            counts[SPONSOR_STATUS] += 1
     counts["All"] = total
     return counts
 
@@ -582,6 +590,7 @@ def get_filtered_counts(
 
     status_counts = {s: 0 for s in LINKEDIN_STATUSES}
     status_counts["Recommended"] = 0
+    status_counts[SPONSOR_STATUS] = 0
     level_counts = {"New Grad": 0, "Entry": 0, "Mid": 0, "Unknown": 0}
     total = 0
 
@@ -619,6 +628,8 @@ def get_filtered_counts(
             status_counts[s] += 1
         if job.get("recommended") and s != "Not Interested":
             status_counts["Recommended"] += 1
+        if s != "Not Interested" and is_top_sponsor(job.get("company", "")):
+            status_counts[SPONSOR_STATUS] += 1
         level = job.get("level", "Unknown")
         if level in level_counts:
             level_counts[level] += 1

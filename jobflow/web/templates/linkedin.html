@@ -52,6 +52,10 @@
             <span class="k">Recommended</span>
             <span class="v" id="stat-rec">{{ counts.get('Recommended', 0) }}</span>
         </button>
+        <button class="stat" data-stat="faang" onclick="setFilter('status', 'FAANG')" title="Well-paying companies with verified H-1B SWE sponsorship (big tech, quant, AI labs, fintech)">
+            <span class="k">FAANG</span>
+            <span class="v" id="stat-faang">{{ counts.get('FAANG', 0) }}</span>
+        </button>
         <button class="stat" data-stat="total" onclick="setTime('')" title="All jobs in the store">
             <span class="k">All Jobs</span>
             <span class="v" id="stat-total">{{ counts.get('All', 0) }}</span>
@@ -66,6 +70,7 @@
         </div>
         <button class="chip active" onclick="setFilter('status', '')" data-status="" aria-pressed="true">All <span class="chip-n">{{ counts.get('All', 0) }}</span></button>
         <button class="chip chip-rec" onclick="setFilter('status', 'Recommended')" data-status="Recommended" aria-pressed="false">Recommended <span class="chip-n">{{ counts.get('Recommended', 0) }}</span></button>
+        <button class="chip chip-faang" onclick="setFilter('status', 'FAANG')" data-status="FAANG" aria-pressed="false" title="Top H-1B sponsors">FAANG <span class="chip-n">{{ counts.get('FAANG', 0) }}</span></button>
         {% for lvl in ['New Grad', 'Entry', 'Mid'] %}
         <button class="chip" onclick="setFilter('level', '{{ lvl }}')" data-level="{{ lvl }}" aria-pressed="false">{{ lvl }} <span class="chip-n">{{ level_counts.get(lvl, 0) }}</span></button>
         {% endfor %}
@@ -309,6 +314,8 @@ function syncStatTiles() {
     document.querySelectorAll('.stat').forEach(function(s) { s.classList.remove('active'); });
     if (status === 'Recommended') {
         document.querySelector('.stat[data-stat="rec"]').classList.add('active');
+    } else if (status === 'FAANG') {
+        document.querySelector('.stat[data-stat="faang"]').classList.add('active');
     } else if (time === 'hour') {
         document.querySelector('.stat[data-stat="hour"]').classList.add('active');
     } else if (time === 'today') {
@@ -770,6 +777,7 @@ function applyFeedMeta(meta) {
     });
 
     if (counts.Recommended !== undefined) tweenStat(document.getElementById('stat-rec'), counts.Recommended);
+    if (counts.FAANG !== undefined) tweenStat(document.getElementById('stat-faang'), counts.FAANG);
 
     var summaryEl = document.getElementById('li-summary');
     if (summaryEl && meta.total !== undefined) {

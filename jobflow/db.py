@@ -22,6 +22,7 @@ from .linkedin_store import (
     _bucket_minutes, _bucket_start, _bucket_label, _bucket_key,
     normalize_url,
 )
+from .sponsors import SPONSOR_STATUS, sponsor_companies
 
 TTL_DAYS = 3
 _pool = None
@@ -769,6 +770,30 @@ def _qualified_select() -> str:
 _USER_JOBS_FROM = "user_job_state s JOIN jobs j ON j.url = s.url"
 
 
+def _sponsor_company_list(user_id: int) -> list[str]:
+    """Raw company names in one user's pool that are on the top-sponsor list
+    (the "FAANG" tab). Matched in Python, then passed to SQL as = ANY(%s)."""
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(f"SELECT DISTINCT j.company FROM {_USER_JOBS_FROM} WHERE s.user_id = %s", (user_id,))
+            rows = cur.fetchall()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        put_conn(conn)
+    return sponsor_companies(r[0] for r in rows)
+
+
+# Count column for the "FAANG" tab; its %s takes _sponsor_company_list() and must
+# come first in params since the SELECT list precedes the WHERE clause.
+_SPONSOR_COUNT_SQL = (
+    "COUNT(*) FILTER (WHERE j.company = ANY(%s) "
+    "AND COALESCE(s.status, '') NOT IN ('Not Interested')) AS sponsor"
+)
+
+
 def _expires_at_for_status(status: str):
     """Return expires_at value based on status. None = never expires."""
     if status in KEEP_STATUSES:
@@ -1139,6 +1164,10 @@ def get_filtered_jobs(
     if status == "Recommended":
         conditions.append("s.recommended = TRUE")
         conditions.append("COALESCE(s.status, '') NOT IN ('Not Interested')")
+    elif status == SPONSOR_STATUS:
+        conditions.append("j.company = ANY(%s)")
+        params.append(_sponsor_company_list(user_id))
+        conditions.append("COALESCE(s.status, '') NOT IN ('Not Interested')")
     elif status:
         conditions.append("s.status = %s")
         params.append(status)
@@ -1217,7 +1246,7 @@ def get_filtered_jobs(
 def get_status_counts(user_id: int = DEFAULT_USER_ID, source: str = "") -> dict[str, int]:
     """Return count of one user's jobs per status + recommended count."""
     where = "WHERE s.user_id = %s" + (" AND j.source = %s" if source else "")
-    params = (user_id, source) if source else (user_id,)
+    params = (_sponsor_company_list(user_id), user_id) + ((source,) if source else ())
     conn = get_conn()
     try:
         with conn.cursor() as cur:
@@ -1227,7 +1256,8 @@ def get_status_counts(user_id: int = DEFAULT_USER_ID, source: str = "") -> dict[
                     COUNT(*) FILTER (WHERE s.status = 'Tracking') AS tracking,
                     COUNT(*) FILTER (WHERE s.status = 'Applied') AS applied,
                     COUNT(*) FILTER (WHERE s.status = 'Not Interested') AS not_interested,
-                    COUNT(*) FILTER (WHERE s.recommended = TRUE AND COALESCE(s.status, '') NOT IN ('Not Interested')) AS recommended
+                    COUNT(*) FILTER (WHERE s.recommended = TRUE AND COALESCE(s.status, '') NOT IN ('Not Interested')) AS recommended,
+                    {_SPONSOR_COUNT_SQL}
                 FROM {_USER_JOBS_FROM} {where}
             """, params)
             row = cur.fetchone()
@@ -1243,6 +1273,7 @@ def get_status_counts(user_id: int = DEFAULT_USER_ID, source: str = "") -> dict[
         "Applied": row[2],
         "Not Interested": row[3],
         "Recommended": row[4],
+        SPONSOR_STATUS: row[5],
     }
 
 
@@ -1344,9 +1375,10 @@ def get_filtered_counts(
                     COUNT(*) FILTER (WHERE s.level = 'New Grad') AS new_grad,
                     COUNT(*) FILTER (WHERE s.level = 'Entry') AS entry,
                     COUNT(*) FILTER (WHERE s.level = 'Mid') AS mid,
-                    COUNT(*) FILTER (WHERE s.level = 'Unknown') AS unknown
+                    COUNT(*) FILTER (WHERE s.level = 'Unknown') AS unknown,
+                    {_SPONSOR_COUNT_SQL}
                 FROM {_USER_JOBS_FROM} WHERE {where}
-            """, params)
+            """, [_sponsor_company_list(user_id)] + params)
             row = cur.fetchone()
     except Exception:
         conn.rollback()
@@ -1361,6 +1393,7 @@ def get_filtered_counts(
             "Applied": row[2],
             "Not Interested": row[3],
             "Recommended": row[4],
+            SPONSOR_STATUS: row[9],
         },
         "level": {
             "All": row[0],

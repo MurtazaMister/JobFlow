@@ -359,6 +359,8 @@ textarea { resize: vertical; min-height: 90px; line-height: 1.5; }
 }
 .chip-rec { color: var(--brass); border-color: var(--brass-line); }
 .chip-rec.active { background: var(--brass); border-color: var(--brass); color: var(--brass-ink); }
+.chip-faang { color: var(--slate); border-color: color-mix(in srgb, var(--slate) 48%, transparent); }
+.chip-faang.active { background: var(--slate); border-color: var(--slate); color: var(--ink); }
 
 .term-select {
     width: auto; padding: 5px 26px 5px 12px; font-size: 0.73rem;
@@ -735,7 +737,7 @@ tr.dismissing { animation: dismiss-out 0.26s ease forwards !important; }
 @media (max-width: 880px) {
     .stat-strip { flex-wrap: wrap; }
     .stat { flex: 1 1 40%; }
-    .stat:nth-child(3) { border-left: none; }
+    .stat:nth-child(3), .stat:nth-child(5) { border-left: none; }
     .stat:nth-child(n+3) { border-top: 1px solid var(--hairline); }
     .sort-seg { margin-left: 0; }
 }
