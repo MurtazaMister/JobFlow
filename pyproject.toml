@@ -22,6 +22,10 @@ dependencies = [
     "tzdata>=2024.1; sys_platform == 'win32'",  # zoneinfo has no system tz db on Windows
 ]
 
+[project.optional-dependencies]
+# Instagram story scanning (local only): OCR + DuckDuckGo search
+instagram = ["rapidocr_onnxruntime>=1.4", "ddgs>=9.0"]
+
 [project.scripts]
 jobflow = "jobflow.cli:app"
 

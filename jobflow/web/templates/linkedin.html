@@ -22,14 +22,41 @@
                 Refresh
             </button>
             <div class="scan-wrap">
-                <button class="btn" id="scan-btn" onclick="runScanWorkflow(this)"
-                        aria-describedby="scan-sources"
-                        {% if workflow_running %}disabled aria-busy="true"{% endif %}>
-                    {% if workflow_running %}<span class="spinner"></span> Scanning…{% else %}Scan Now{% endif %}
+                <div class="scan-main">
+                    <button class="btn" id="scan-btn" onclick="runScanWorkflow(this)"
+                            aria-describedby="scan-sources"
+                            {% if workflow_running %}disabled aria-busy="true"{% endif %}>
+                        {% if workflow_running %}<span class="spinner"></span> Scanning…{% else %}Scan Now{% endif %}
+                    </button>
+                    <div class="scan-sources{% if workflow_running %} open{% endif %}" id="scan-sources" role="status" aria-live="polite">
+                        <h4>Sources</h4>
+                        <ul id="scan-sources-list"><li><span class="src-ico">…</span><span>Loading sources</span><span></span></li></ul>
+                    </div>
+                </div>
+                <button class="btn scan-caret" id="sched-toggle" onclick="toggleSchedPanel()"
+                        aria-haspopup="true" aria-expanded="false" aria-controls="sched-panel"
+                        title="Schedule scans">
+                    <span class="sched-dot" aria-hidden="true"></span>▾
                 </button>
-                <div class="scan-sources{% if workflow_running %} open{% endif %}" id="scan-sources" role="status" aria-live="polite">
-                    <h4>Sources</h4>
-                    <ul id="scan-sources-list"><li><span class="src-ico">…</span><span>Loading sources</span><span></span></li></ul>
+                <div class="sched-panel" id="sched-panel" role="dialog" aria-label="Schedule scans">
+                    <h4>Schedule scans</h4>
+                    <div class="sched-row">
+                        <span>Every</span>
+                        <input type="number" id="sched-n" min="1" step="1" value="1" aria-label="Interval">
+                        <select id="sched-unit" aria-label="Interval unit">
+                            <option value="60">hours</option>
+                            <option value="1">mins</option>
+                        </select>
+                    </div>
+                    <div class="check-row">
+                        <input type="checkbox" id="sched-score" checked>
+                        <label for="sched-score">Score new jobs <span class="why">AI-score what each scan finds</span></label>
+                    </div>
+                    <div class="sched-status" id="sched-status" aria-live="polite">Scans now, then on every interval. Runs only while this tab stays open.</div>
+                    <div class="sched-actions">
+                        <button class="btn btn-primary btn-sm" id="sched-start" onclick="startSchedule()">Start schedule</button>
+                        <button class="btn btn-danger btn-sm" id="sched-stop" onclick="stopSchedule()" style="display:none">Stop</button>
+                    </div>
                 </div>
             </div>
             <button class="btn btn-primary" id="ai-score-btn" onclick="openAiModal()">
@@ -114,6 +141,7 @@
             <button class="btn btn-sm btn-ghost" id="bulk-open-top-btn" onclick="openTopJobs(10)" disabled>Open top 10</button>
             <button class="btn btn-sm btn-danger" id="bulk-delete-top-btn" onclick="deleteTopJobs(10)" disabled>Delete top 10</button>
             <button class="btn btn-sm btn-ghost" id="bulk-open-btn" onclick="openSelectedJobs()" disabled>Open selected</button>
+            <button class="btn btn-sm btn-ghost" id="bulk-copy-btn" onclick="copySelectedJobs()" disabled>Copy selected</button>
             <button class="btn btn-sm btn-danger" id="bulk-delete-btn" onclick="deleteSelectedJobs()" disabled>Delete selected</button>
         </div>
     </div>
@@ -350,7 +378,7 @@ function debounceFilter() {
 /* ── Refresh ────────────────────────────── */
 function refreshFeed(btn) {
     btn.disabled = true;
-    fetch(API_BASE + '/refresh', {method: 'POST'}).then(function(r) {
+    return fetch(API_BASE + '/refresh', {method: 'POST'}).then(function(r) {
         return r.json();
     }).then(function(data) {
         if (data.ok) showToast('Refreshed');
@@ -423,10 +451,16 @@ function scanBtnLoading(loading, label) {
     }
 }
 
+function scanIsRunning() {
+    var btn = document.getElementById('scan-btn');
+    return !!scanPollTimer || (btn && btn.disabled);
+}
+
+/* Resolves true when a scan was started (or one was already running). */
 function runScanWorkflow(btn) {
-    if (btn.disabled) return;            // guard against double-clicks
+    if (btn.disabled) return Promise.resolve(false);   // guard against double-clicks
     scanBtnLoading(true, 'Triggering…');
-    fetch('/api/scan/workflow', {method: 'POST'}).then(function(r) {
+    return fetch('/api/scan/workflow', {method: 'POST'}).then(function(r) {
         return r.json().then(function(data) { return {status: r.status, data: data}; });
     }).then(function(res) {
         if (res.data.ok || res.status === 409) {
@@ -436,13 +470,15 @@ function runScanWorkflow(btn) {
             setScanPanelOpen(true);
             scanBtnLoading(true, 'Scanning…');
             pollScanWorkflow();
-        } else {
-            scanBtnLoading(false);
-            showToast(res.data.error || 'Failed to trigger workflow', 'error');
+            return true;
         }
+        scanBtnLoading(false);
+        showToast(res.data.error || 'Failed to trigger workflow', 'error');
+        return false;
     }).catch(function() {
         scanBtnLoading(false);
         showToast('Failed to trigger workflow', 'error');
+        return false;
     });
 }
 
@@ -465,12 +501,16 @@ function pollScanWorkflow() {
                 showToast('Scan: ' + s.error, 'error');
             } else if (s.conclusion === 'success') {
                 showToast('Scan complete — pulling in new jobs…');
-                refreshFeed(document.getElementById('refresh-btn'));
+                refreshFeed(document.getElementById('refresh-btn')).then(function() {
+                    onScheduledScanDone(true);
+                });
+                return;
             } else if (s.conclusion) {
                 showToast('Scan finished: ' + s.conclusion, 'error');
             } else {
                 showToast('Scan finished.');
             }
+            onScheduledScanDone(false);
         }).catch(function() {});
     }, 5000);
 }
@@ -479,6 +519,140 @@ document.addEventListener('DOMContentLoaded', loadScanSources);
 {% if workflow_running %}
 document.addEventListener('DOMContentLoaded', pollScanWorkflow);
 {% endif %}
+
+/* ── Scheduled scans ─────────────────────────
+   Lives only in this tab: closing or reloading it drops the schedule.
+   Slots are anchored to the moment Start was clicked (start, start+N,
+   start+2N, …). A slot that arrives while a scan is still running is
+   skipped, and the schedule targets the next one. */
+var sched = null;          // {intervalMs, score, startedAt, nextAt}
+var schedTick = null;
+var schedScanStartedAt = null;   // set while a scan the schedule started is running
+
+function toggleSchedPanel(force) {
+    var panel = document.getElementById('sched-panel');
+    var open = typeof force === 'boolean' ? force : !panel.classList.contains('open');
+    panel.classList.toggle('open', open);
+    document.getElementById('sched-toggle').setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+document.addEventListener('click', function(e) {
+    var wrap = document.querySelector('.scan-wrap');
+    if (wrap && !wrap.contains(e.target)) toggleSchedPanel(false);
+});
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') toggleSchedPanel(false);
+});
+
+function fmtInterval(ms) {
+    var mins = Math.round(ms / 60000);
+    if (mins % 60 === 0) return (mins / 60) + (mins === 60 ? ' hour' : ' hours');
+    return mins + (mins === 1 ? ' min' : ' mins');
+}
+function fmtCountdown(ms) {
+    var s = Math.max(0, Math.ceil(ms / 1000));
+    var h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+    var pad = function(n) { return (n < 10 ? '0' : '') + n; };
+    return (h ? h + ':' + pad(m) : m) + ':' + pad(sec);
+}
+
+function startSchedule() {
+    var n = parseInt(document.getElementById('sched-n').value, 10);
+    var unitMins = parseInt(document.getElementById('sched-unit').value, 10);
+    if (!n || n < 1) { showToast('Enter an interval of at least 1', 'error'); return; }
+    var now = Date.now();
+    sched = {
+        intervalMs: n * unitMins * 60000,
+        score: document.getElementById('sched-score').checked,
+        startedAt: now,
+        nextAt: now,               // first scan fires right away
+    };
+    clearInterval(schedTick);
+    // 1s tick; background tabs throttle it, so each tick catches up on its own.
+    schedTick = setInterval(schedCheck, 1000);
+    showToast('Scheduled a scan every ' + fmtInterval(sched.intervalMs) + ' — starting now.');
+    schedCheck();
+}
+
+function stopSchedule() {
+    clearInterval(schedTick);
+    schedTick = null;
+    sched = null;
+    schedScanStartedAt = null;
+    renderSched();
+    showToast('Scan schedule stopped.');
+}
+
+function schedCheck() {
+    if (!sched) return;
+    var now = Date.now();
+    if (now >= sched.nextAt) {
+        // Next slot strictly after now, still anchored to the start click.
+        var k = Math.floor((now - sched.startedAt) / sched.intervalMs) + 1;
+        sched.nextAt = sched.startedAt + k * sched.intervalMs;
+        if (scanIsRunning()) {
+            showToast('Previous scan still running — skipping this slot. Next scan in ' +
+                      fmtCountdown(sched.nextAt - now) + '.');
+        } else {
+            var startedAt = now;
+            runScanWorkflow(document.getElementById('scan-btn')).then(function(started) {
+                if (started && sched) schedScanStartedAt = startedAt;
+            });
+        }
+    }
+    renderSched();
+}
+
+/* Called by the scan poller when any scan ends. Only acts on scans the
+   schedule started, and only scores after a successful one. */
+function onScheduledScanDone(success) {
+    var startedAt = schedScanStartedAt;
+    schedScanStartedAt = null;
+    if (!sched || !startedAt || !success || !sched.score) return;
+    // Unscored jobs first seen since this scan began = what it just found.
+    var hours = ((Date.now() - startedAt) / 3600000 + 0.05).toFixed(3);
+    var body = new URLSearchParams();
+    body.set('engine', _aiEngine);
+    body.set('hours', hours);
+    body.set('limit', '0');
+    body.set('rescore', 'false');
+    fetch('/api/aiscore/trigger', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: body.toString()
+    }).then(function(resp) {
+        return resp.json().then(function(data) { return {ok: resp.ok, data: data}; });
+    }).then(function(r) {
+        if (!r.ok) {
+            showToast('Auto-score skipped: ' + (r.data.error || 'could not start scoring'), 'error');
+            return;
+        }
+        showToast('Scoring the new jobs…');
+        renderAiState(r.data);
+        startAiPolling();
+    }).catch(function() {
+        showToast('Auto-score skipped: could not reach the server', 'error');
+    });
+}
+
+function renderSched() {
+    var on = !!sched;
+    document.getElementById('sched-toggle').classList.toggle('sched-on', on);
+    document.getElementById('sched-start').style.display = on ? 'none' : '';
+    document.getElementById('sched-stop').style.display = on ? '' : 'none';
+    ['sched-n', 'sched-unit', 'sched-score'].forEach(function(id) {
+        document.getElementById(id).disabled = on;
+    });
+    var status = document.getElementById('sched-status');
+    if (!on) {
+        status.textContent = 'Scans now, then on every interval. Runs only while this tab stays open.';
+        document.getElementById('sched-toggle').title = 'Schedule scans';
+        return;
+    }
+    var line = 'Every ' + fmtInterval(sched.intervalMs) + (sched.score ? ' + score' : '') + ' · ';
+    line += scanIsRunning() ? 'scanning now' : 'next scan in ' + fmtCountdown(sched.nextAt - Date.now());
+    status.textContent = line;
+    document.getElementById('sched-toggle').title = line;
+}
 
 /* ── Bulk selection ─────────────────────── */
 function displayedJobRows() {
@@ -537,7 +711,9 @@ function updateBulkSelectionState(options) {
     var deleteBtn = document.getElementById('bulk-delete-btn');
     var openTopBtn = document.getElementById('bulk-open-top-btn');
     var deleteTopBtn = document.getElementById('bulk-delete-top-btn');
+    var copyBtn = document.getElementById('bulk-copy-btn');
     if (openBtn) openBtn.disabled = selected.length === 0;
+    if (copyBtn) copyBtn.disabled = selected.length === 0;
     if (deleteBtn) deleteBtn.disabled = selected.length === 0;
     if (openTopBtn) openTopBtn.disabled = rows.length === 0;
     if (deleteTopBtn) deleteTopBtn.disabled = rows.length === 0;
@@ -672,17 +848,56 @@ function openTopJobs(limit) {
 }
 function openJobRows(rows, label) {
     var opened = 0;
+    var blocked = 0;
     var skipped = 0;
     rows.forEach(function(row) {
         var url = row.dataset.url || '';
         if (!url) { skipped += 1; return; }
-        var win = window.open(url, '_blank', 'noopener');
-        if (win) win.opener = null;
+        // No 'noopener' feature: with it window.open always returns null, which hides
+        // popup-blocker failures. Detach the opener manually instead.
+        var win = window.open(url, '_blank');
+        if (!win) { blocked += 1; return; }
+        try { win.opener = null; } catch (e) {}
         opened += 1;
     });
     if (opened) showToast('Opened ' + opened + ' ' + label + ' job' + (opened === 1 ? '' : 's'));
-    if (!opened && skipped) showToast('No ' + label + ' jobs have links', 'error');
-    if (opened && skipped) showToast('Skipped ' + skipped + ' job' + (skipped === 1 ? '' : 's') + ' without links');
+    if (blocked) showToast('Browser blocked ' + blocked + ' tab' + (blocked === 1 ? '' : 's')
+        + ' — allow pop-ups for this site (icon in the address bar), then retry', 'error');
+    if (!opened && !blocked && skipped) showToast('No ' + label + ' jobs have links', 'error');
+    if ((opened || blocked) && skipped) showToast('Skipped ' + skipped + ' job' + (skipped === 1 ? '' : 's') + ' without links');
+}
+function copyText(text) {
+    if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
+    return new Promise(function(resolve, reject) {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        var ok = false;
+        try { ok = document.execCommand('copy'); } catch (e) {}
+        ta.remove();
+        ok ? resolve() : reject(new Error('Copy failed'));
+    });
+}
+function copyJobLink(btn) {
+    var row = btn.closest('tr[data-key]');
+    var url = row ? row.dataset.url || '' : '';
+    if (!url) return;
+    copyText(url).then(function() {
+        btn.classList.add('copied');
+        setTimeout(function() { btn.classList.remove('copied'); }, 1200);
+        showToast('Link copied');
+    }).catch(function() { showToast('Failed to copy link', 'error'); });
+}
+function copySelectedJobs() {
+    var urls = selectedJobRows().map(function(row) { return row.dataset.url || ''; }).filter(Boolean);
+    if (!urls.length) { showToast('No selected jobs have links', 'error'); return; }
+    copyText(urls.join('\n')).then(function() {
+        showToast('Copied ' + urls.length + ' link' + (urls.length === 1 ? '' : 's'));
+    }).catch(function() { showToast('Failed to copy links', 'error'); });
 }
 function deleteSelectedJobs() {
     deleteJobRows(selectedJobRows(), 'selected');

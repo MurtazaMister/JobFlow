@@ -26,6 +26,7 @@ build/
 # JobFlow data (local only)
 data/output/
 data/applications.csv
+data/instagram/
 
 # Track CI scan results
 !data/ci/

@@ -30,7 +30,7 @@
                     {% elif job.url and 'myworkdayjobs.com' in job.url %}<span class="tag tag-wd">Workday</span>
                     {% elif job.url %}<span class="tag tag-other">Career</span>
                     {% endif %}
-                    {% set src_labels = {'simplify': 'via Simplify', 'speedyapply': 'via SpeedyApply', 'jobright': 'via Jobright', 'github': 'via GitHub list', 'notify': 'via notify.careers'} %}
+                    {% set src_labels = {'simplify': 'via Simplify', 'speedyapply': 'via SpeedyApply', 'jobright': 'via Jobright', 'github': 'via GitHub list', 'notify': 'via notify.careers', 'instagram': 'via Instagram story'} %}
                     {% if job.source in src_labels %}<span class="tag tag-src" title="Found via an aggregator">{{ src_labels[job.source] }}</span>{% endif %}
                     {% if job.h1b is defined and job.h1b %}<span class="tag tag-h1b">H1B ✓</span>{% endif %}
                 </div>
@@ -75,6 +75,7 @@
     <td style="white-space:nowrap; text-align:right;">
         {% if job.url %}
         <a href="{{ job.url }}" target="_blank" rel="noopener" class="apply-btn" aria-label="Apply to {{ job.title }} at {{ job.company }}">Apply</a>
+        <button class="copy-btn" title="Copy link" aria-label="Copy link to {{ job.title }}" onclick="copyJobLink(this)"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
         {% endif %}
         <button class="dismiss-btn" title="Delete {{ job.title }}" aria-label="Delete {{ job.title }}" data-key="{{ job._key }}" onclick="dismissJob(this, this.dataset.key)">✕</button>
     </td>

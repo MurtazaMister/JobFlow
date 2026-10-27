@@ -186,6 +186,37 @@ footer .foot {
 
 /* Scan Now sources popover: what a scan aggregates, with live status */
 .scan-wrap { position: relative; display: inline-flex; }
+.scan-main { position: relative; display: inline-flex; }
+.scan-main #scan-btn { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.scan-caret {
+    position: relative; padding: 7px 9px; margin-left: -1px;
+    border-top-left-radius: 0; border-bottom-left-radius: 0;
+}
+.scan-caret .sched-dot {
+    display: none; position: absolute; top: 4px; right: 4px;
+    width: 6px; height: 6px; border-radius: 50%; background: var(--grow);
+}
+.scan-caret.sched-on { color: var(--text); border-color: var(--hairline-strong); }
+.scan-caret.sched-on .sched-dot { display: block; }
+.sched-panel {
+    position: absolute; top: calc(100% + 8px); right: 0; z-index: calc(var(--z-modal) + 1);
+    width: min(280px, calc(100vw - 32px));
+    background: var(--panel-2); border: 1px solid var(--hairline-strong);
+    border-radius: 10px; box-shadow: var(--shadow); padding: 12px;
+    display: none;
+}
+.sched-panel.open { display: block; }
+.scan-wrap:has(.sched-panel.open) .scan-sources { opacity: 0; pointer-events: none; }
+.sched-panel h4 {
+    font-size: 0.7rem; font-weight: 600; color: var(--text-3);
+    letter-spacing: 0.04em; text-transform: uppercase; margin-bottom: 10px;
+}
+.sched-row { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; font-size: 0.8rem; color: var(--text-2); }
+.sched-row input { width: 64px; padding: 6px 8px; }
+.sched-row select { width: auto; padding: 6px 28px 6px 10px; }
+.sched-panel .check-row { margin-bottom: 10px; }
+.sched-status { font-size: 0.72rem; color: var(--text-3); line-height: 1.45; margin-bottom: 10px; font-variant-numeric: tabular-nums; }
+.sched-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .scan-sources {
     position: absolute; top: calc(100% + 8px); right: 0; z-index: var(--z-modal);
     width: min(340px, calc(100vw - 32px));
@@ -194,8 +225,8 @@ footer .foot {
     opacity: 0; transform: translateY(-4px); pointer-events: none;
     transition: opacity 0.15s ease, transform 0.15s ease;
 }
-.scan-wrap:hover .scan-sources,
-.scan-wrap:focus-within .scan-sources,
+.scan-main:hover .scan-sources,
+.scan-main:focus-within .scan-sources,
 .scan-sources.open { opacity: 1; transform: none; pointer-events: auto; }
 .scan-sources h4 {
     font-size: 0.7rem; font-weight: 600; color: var(--text-3);
@@ -601,6 +632,17 @@ tr.dismissing { animation: dismiss-out 0.26s ease forwards !important; }
 .apply-btn:hover { background: var(--brass-soft); border-color: var(--brass-line); text-decoration: none; }
 .apply-btn:active { transform: scale(0.95); }
 .apply-btn:focus-visible { outline: 2px solid var(--brass); outline-offset: 2px; }
+
+.copy-btn {
+    display: inline-flex; align-items: center; justify-content: center; vertical-align: middle;
+    width: 25px; height: 25px; border-radius: 7px; border: none; margin-left: 2px;
+    background: transparent; color: var(--text-3); cursor: pointer;
+    transition: background-color 0.15s, color 0.15s, transform 0.12s;
+}
+.copy-btn:hover { background: var(--brass-soft); color: var(--brass); }
+.copy-btn:active { transform: scale(0.88); }
+.copy-btn:focus-visible { outline: 2px solid var(--brass); outline-offset: 2px; }
+.copy-btn.copied { color: var(--brass); }
 
 .dismiss-btn {
     display: inline-flex; align-items: center; justify-content: center;

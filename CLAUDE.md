@@ -30,6 +30,7 @@ JobFlow/
 │   ├── filter_profile.py    # Per-user FilterProfile + DEFAULT_PROFILE + config (de)serialize
 │   ├── scanner.py           # Scanners (Lever, Greenhouse, Ashby, LinkedIn, GitHub README repos) + scan_sources()
 │   ├── applied.py           # Applied detection from tailored-application output folders
+│   ├── instagram_stories.py # @zero2sudo story drops: viewer sites → OCR → Gemma → search → posting
 │   ├── linkedin_scraper.py  # LinkedIn guest-API transport/parsing (429 backoff, pagination)
 │   ├── ai_prompt.py         # Shared scoring prompt + parse/normalize (used by all scorers)
 │   ├── ai_local.py          # Local scoring engines: gemma (default) / claude / codex CLI dispatch
@@ -44,6 +45,7 @@ JobFlow/
 │       └── templates/       # base, linkedin, login, settings, _partials/
 ├── scripts/
 │   ├── ai_score_local.py    # Operator's local AI-scoring runner (--user-id, DB or JSON)
+│   ├── bench_story_providers.py # Times the anonymous Instagram story-viewer providers
 │   └── backfill_ai_scores.py
 ├── docs/                    # Documentation (see README's Documentation table)
 ├── .github/workflows/scan-jobs.yml   # Every-30-min LinkedIn scan + merge/fan-out
@@ -107,6 +109,17 @@ grammar-constrained JSON; batches of 5, descriptions capped at 6000 chars. Paths
 remain selectable. `scripts/bench_local_models.py` compares local models against stored Claude scores
 (results in git-ignored `data/eval/bench/`). The hover card on a row's match % shows the scorer's
 one-sentence reason (`ai_reason`).
+
+## Instagram story source
+`instagram_stories.py` turns job-drop stories (default account `zero2sudo`) into postings, local-only
+(Scan Now / `jobflow scan -p instagram`; skipped in CI). Stories come from anonymous viewer sites
+(`PROVIDERS`, fastest-first, plain HTTP — storynavigation.com, insta-stories-viewer.com,
+insta-stories.io; re-rank with `scripts/bench_story_providers.py`). Each frame (video poster) is OCR'd
+with RapidOCR, then local Gemma classifies it (only `job_posting` survives — DMs, offers, recaps,
+news, Q&A are dropped) and extracts company/title/location/link domain. The link is found via
+Greenhouse/Lever/Ashby board APIs, else `ddgs` web search + Gemma pick, guarded so career home pages
+don't pass. No Claude calls. Verdicts are cached per story id in git-ignored
+`data/instagram/stories.json`. Extras: `pip install -e .[instagram]`.
 
 ## Default filter criteria (operator profile)
 New grad / entry-level / SDE 1 · USA-based · must not deny sponsorship · OPT/F1 friendly · SWE
