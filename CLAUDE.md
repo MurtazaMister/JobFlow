@@ -89,8 +89,11 @@ Application tracking, /boards, /scan, /tailor pages were removed from the web UI
 
 ## Applied jobs
 Feed rows are struck through when a folder in `applied_dirs` (config.yaml, or `JOBFLOW_APPLIED_DIRS`)
-matches the job — by the `Source:` URL in the folder's `jd.txt`, or by the `YYYY-MM-DD_company_title`
-folder name. Operator only (the folders live on the operator's machine). See `jobflow/applied.py`.
+matches the job — by the posting URL in the folder's `jd.txt` (`Source:` line or a bare URL in the
+header), by the posting ID ending the `YYYY-MM-DD_company_title-<id>` folder name, or, for folders with
+neither, by an exact company + title slug. Tuned for precision: a missed strike is fine, a wrong one is
+not, so there is no fuzzy matching. Operator only (the folders live on the operator's machine). See
+`jobflow/applied.py`.
 
 ## Scoring
 Multi-signal scoring (0–100%) via `filter.evaluate_job(job, profile=…)`. Scoring is **per-user**:
