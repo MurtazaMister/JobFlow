@@ -10,7 +10,6 @@ def _row(url="", company="", title="Software Engineer", location="US", desc="Pyt
 
 
 def test_blocked_staffing_sources_match_company_and_url():
-    assert is_blocked_staffing_source(_row(url="https://jobright.ai/jobs/123"))
     assert is_blocked_staffing_source(_row(company="RemoteHunter"))
     assert is_blocked_staffing_source(_row(company="Quik Hire Staffing"))
     assert is_blocked_staffing_source(_row(company="Beacon FIre"))
@@ -24,6 +23,10 @@ def test_blocked_staffing_sources_match_company_and_url():
 
 def test_legitimate_company_is_not_blocked():
     assert not is_blocked_staffing_source(_row(company="Stripe", url="https://stripe.com/jobs/123"))
+
+
+def test_jobright_reposts_are_allowed():
+    assert not is_blocked_staffing_source(_row(company="Nutanix", url="https://jobright.ai/jobs/info/abc"))
 
 
 def test_eligible_ai_score_only_allows_unscored_by_default():

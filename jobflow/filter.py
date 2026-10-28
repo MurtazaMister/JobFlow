@@ -130,13 +130,14 @@ COMPANY_BLOCKLIST = {
     "lancesoft", "haystack", "turing", "micro1", "hackajob",
     "crossover", "toptal", "andela", "revelo", "tira",
     "jack & jill", "jack and jill",
-    "jobright", "jobright.ai", "quik hire staffing", "beacon fire",
+    "quik hire staffing", "beacon fire",
     "helic & co.", "helic and co",
 }
 
 # URL fragments that identify aggregator/staffing reposts even when the
-# company field looks legitimate (e.g. jobright.ai deep links).
-BLOCKED_URL_SIGNS = ("jobright.ai", "jobs-via-dice")
+# company field looks legitimate. jobright.ai is deliberately NOT here: its
+# reposts carry the real employer and are wanted (it is also a scan source).
+BLOCKED_URL_SIGNS = ("jobs-via-dice",)
 
 # Substring blocklist used by the AI scorers (jobflow/ai_scorer.py and
 # scripts/ai_score_local.py) to short-circuit obvious aggregator/staffing
@@ -144,7 +145,7 @@ BLOCKED_URL_SIGNS = ("jobright.ai", "jobs-via-dice")
 # (exact company-name match), this is matched as a substring against a haystack
 # built from a job's url/company/title/location/description.
 STAFFING_SOURCE_BLOCKLIST = (
-    "jobright.ai", "remotehunter", "quik hire staffing", "beacon fire",
+    "remotehunter", "quik hire staffing", "beacon fire",
     "helic & co.", "helic and co", "jack & jill", "jack and jill",
     "jobs via dice",
 )

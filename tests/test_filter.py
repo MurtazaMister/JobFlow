@@ -84,6 +84,12 @@ class TestHardRejectCompany:
         result = evaluate_job(job)
         assert "Blocked company" not in result.reason
 
+    def test_jobright_repost_passes(self):
+        job = JobPosting(url="https://jobright.ai/jobs/info/abc", title="SWE", company="Nutanix",
+                         location="SF", description="Python")
+        result = evaluate_job(job)
+        assert "Blocked company" not in result.reason
+
 
 class TestHardRejectSponsorship:
     """Jobs that explicitly deny sponsorship should be rejected."""

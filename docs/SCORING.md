@@ -98,7 +98,7 @@ Separate from main score — estimates applicant competition:
 
 A job is flagged (score=0, `reject_reason` set) if any of these fire, in order:
 
-1. **Company / URL blocklist** — staffing agencies & aggregators (Dice, Turing, Jobot, jobright.ai, …)
+1. **Company / URL blocklist** — staffing agencies & aggregators (Dice, Turing, Jobot, …; jobright.ai reposts are allowed)
 2. **Title** — senior / staff / principal / lead / manager / director / architect / VP / QA-SDET
 3. **Sponsorship / citizenship / clearance** — "no sponsorship", "US citizen only", "security clearance", green card, etc.
 4. **Non-US location** — anything not matching a US city/state/remote signal (India, UK, Germany, …)

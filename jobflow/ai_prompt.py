@@ -31,7 +31,7 @@ Give a score of 0 ONLY if ANY of these are true. Be strict — only these 6 cond
 
 5. **Not US-based**: Located outside the US with no remote-US option.
 
-6. **Blocked staffing/spam source**: The job is from jobright.ai, Remotehunter, Quik Hire Staffing, Beacon Fire, Helic & Co., Jack and Jill, or Jobs Via Dice.
+6. **Blocked staffing/spam source**: The job is from Remotehunter, Quik Hire Staffing, Beacon Fire, Helic & Co., Jack and Jill, or Jobs Via Dice.
 
 IMPORTANT: The candidate's "Avoid" preferences (e.g., "Avoid: Frontend-only") should LOWER the score (2-4) but NEVER cause a score of 0. A frontend SWE role is still a software engineering role — it's just a weak fit, not a hard reject.
 

@@ -53,7 +53,7 @@ Give a score of 0 if ANY of these are true. Check carefully:
 
 5. **Not US-based**: The job is located outside the United States with no remote-US option.
 
-6. **Blocked staffing/spam source**: The job is from jobright.ai, Remotehunter, Quik Hire Staffing, Beacon Fire, Helic & Co., Jack and Jill, or Jobs Via Dice.
+6. **Blocked staffing/spam source**: The job is from Remotehunter, Quik Hire Staffing, Beacon Fire, Helic & Co., Jack and Jill, or Jobs Via Dice.
 
 ## SCORING GUIDE (only if no hard reject applies)
 Score 1-10 based on how well this job fits the candidate:
