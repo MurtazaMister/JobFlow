@@ -90,3 +90,45 @@ def test_folders_with_a_url_do_not_title_match(tmp_path):
     idx = load_index(_config(tmp_path))
     assert match({"company": "Ramp", "title": "Software Engineer",
                   "url": "https://jobs.ashbyhq.com/ramp/22222222-2222-2222-2222-222222222222"}, idx) is None
+
+
+def test_matches_cross_site_repost_by_title_and_city(tmp_path):
+    """Applied on the company's iCIMS page; the feed has the LinkedIn repost."""
+    d = _make(tmp_path, "2026-10-28_atlassian_backend-software-engineer-focus-funds-and-ai-27824",
+              "https://careers-americas.icims.com/jobs/27824/backend-software-engineer/job")
+    (d / "jd.txt").write_text(d.joinpath("jd.txt").read_text() + "Backend Engineer in San Francisco, California\n",
+                              encoding="utf-8")
+    d = tmp_path / "output" / "2026-10-28_atlassian_backend-software-engineer-27823"
+    d.mkdir()
+    (d / "jd.txt").write_text("\nBackend Software Engineer in San Francisco, California | Careers\n",
+                              encoding="utf-8")
+    idx = load_index(_config(tmp_path))
+    li = "https://www.linkedin.com/jobs/view/4484281302"
+    assert match({"company": "Atlassian", "title": "Backend Software Engineer - Focus Funds and AI",
+                  "location": "San Francisco, CA", "url": li}, idx)
+    assert match({"company": "Atlassian", "title": "Backend Software Engineer",
+                  "location": "San Francisco, CA", "url": li}, idx)
+    # Different city, or no location: no strike.
+    assert match({"company": "Atlassian", "title": "Backend Software Engineer",
+                  "location": "Austin, TX", "url": li}, idx) is None
+    assert match({"company": "Atlassian", "title": "Backend Software Engineer", "url": li}, idx) is None
+    # Another posting on the same iCIMS site is a different job.
+    assert match({"company": "Atlassian", "title": "Backend Software Engineer - Focus Funds and AI",
+                  "location": "San Francisco, CA",
+                  "url": "https://careers-americas.icims.com/jobs/30000/backend/job"}, idx) is None
+    # Same-shape ID in the job's URL (another iCIMS req) is a different job.
+    assert match({"company": "Atlassian", "title": "Backend Software Engineer",
+                  "location": "San Francisco, CA", "url": "https://example.com/jobs/27999"}, idx) is None
+
+
+def test_cross_site_match_rejects_a_different_description(tmp_path):
+    d = tmp_path / "output" / "2026-10-27_microsoft_software-engineer-4484075873"
+    d.mkdir(parents=True)
+    jd = "Software Engineer in Mountain View, CA. " + " ".join(f"networking word{i}" for i in range(80))
+    (d / "jd.txt").write_text(jd, encoding="utf-8")
+    idx = load_index(_config(tmp_path))
+    job = {"company": "Microsoft", "title": "Software Engineer", "location": "Mountain View, CA",
+           "url": "https://apply.careers.microsoft.com/careers/job/1970393557045516"}
+    assert match({**job, "description_preview": jd[40:600]}, idx)
+    other = " ".join(f"storage thing{i}" for i in range(80))
+    assert match({**job, "description_preview": other}, idx) is None

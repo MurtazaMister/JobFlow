@@ -48,6 +48,7 @@ from ..linkedin_store import (
     get_time_counts,
     backfill_job,
     delete_job as delete_json_job,
+    mark_viewed as mark_viewed_json,
     STORE_LOCK,
     is_db_enabled,
 )
@@ -516,6 +517,15 @@ def create_app():
             return jobs
         return annotate(jobs, config)
 
+    def _applied_counts():
+        """``{"today", "total"}`` application folders, or None for non-operators
+        and when no applied dirs are configured on this machine."""
+        from ..applied import applied_counts, applied_dirs
+        from ..db import DEFAULT_USER_ID
+        if g.get("user_id", DEFAULT_USER_ID) != DEFAULT_USER_ID or not applied_dirs(config):
+            return None
+        return applied_counts(config)
+
     def _feed_args():
         try:
             tz_offset = int(request.args.get("tz", "0") or "0")
@@ -557,6 +567,19 @@ def create_app():
             search_term=args["search_term"], source=SOURCE,
         )
 
+    def _day_stat_counts(tz_offset: int) -> dict:
+        """Recommended / FAANG counts for today and yesterday (user-local days),
+        for the stat tiles: today's number big, yesterday's underneath."""
+        out = {}
+        for day in ("today", "yesterday"):
+            status = _feed_counts({
+                "time_range": day, "bucket_filter": "", "tz_offset": tz_offset,
+                "query": "", "search_term": "",
+            })["status"]
+            out[day] = {"Recommended": status.get("Recommended", 0),
+                        "FAANG": status.get("FAANG", 0)}
+        return out
+
     def _feed_meta(args: dict):
         fc = _feed_counts(args)
         payload = {
@@ -585,13 +608,21 @@ def create_app():
                 "today": time_counts["today"],
                 "yesterday": time_counts["yesterday"],
             }
-            # All-time totals for the stat tiles, which stay put while the
-            # time range changes (chips and summary follow the filters).
+            # Stat tiles stay put while the time range changes (chips and
+            # summary follow the filters): Recommended / FAANG show today's
+            # count with yesterday's underneath; All Jobs is the all-time total.
+            days = _day_stat_counts(args["tz_offset"])
             payload["stat_counts"] = {
-                "Recommended": all_counts.get("Recommended", 0),
-                "FAANG": all_counts.get("FAANG", 0),
+                "Recommended": days["today"]["Recommended"],
+                "RecommendedYesterday": days["yesterday"]["Recommended"],
+                "FAANG": days["today"]["FAANG"],
+                "FAANGYesterday": days["yesterday"]["FAANG"],
                 "All": all_counts.get("All", 0),
             }
+            applied = _applied_counts()
+            if applied is not None:
+                payload["stat_counts"]["AppliedToday"] = applied["today"]
+                payload["stat_counts"]["AppliedTotal"] = applied["total"]
             payload["buckets"] = time_counts.get("buckets", [])
         return payload
 
@@ -629,7 +660,9 @@ def create_app():
             level_counts=level_counts,
             search_terms=search_terms,
             time_counts=time_counts,
+            day_counts=_day_stat_counts(0),   # refreshed with the browser's tz on load
             last_updated=last_updated,
+            applied_counts=_applied_counts(),
             scan_running=scan_state["running"],
             workflow_running=workflow_state["running"],
             ai_running=ai_state["running"],
@@ -753,6 +786,19 @@ def create_app():
                 store = load_store(linkedin_store_path)
                 delete_json_job(store, key)
                 save_store(linkedin_store_path, store)
+        return "", 204
+
+    @app.route("/api/linkedin/viewed", methods=["POST"])
+    def api_linkedin_viewed():
+        key = (request.get_json(silent=True) or {}).get("key") or ""
+        if not key:
+            return "", 400
+        ok, _ = _try_db(lambda db: db.mark_viewed(key, user_id=g.user_id))
+        if not ok:
+            with STORE_LOCK:
+                store = load_store(linkedin_store_path)
+                if mark_viewed_json(store, key):
+                    save_store(linkedin_store_path, store)
         return "", 204
 
     @app.route("/api/linkedin/jobs/bulk-delete", methods=["POST"])

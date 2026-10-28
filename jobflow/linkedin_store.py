@@ -351,6 +351,16 @@ def update_job_status(store: dict, key: str, status: str) -> bool:
     return False
 
 
+def mark_viewed(store: dict, key: str) -> bool:
+    """Record that the posting was opened from the feed. Returns True if found."""
+    jobs = store.get("jobs", {})
+    stored_key = _lookup_key(jobs, key)
+    if stored_key:
+        jobs[stored_key]["viewed_at"] = datetime.now(timezone.utc).isoformat()
+        return True
+    return False
+
+
 def delete_job(store: dict, key: str) -> bool:
     """Delete a JSON job and remember its canonical key so it does not reappear."""
     jobs = store.get("jobs", {})

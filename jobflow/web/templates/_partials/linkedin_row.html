@@ -22,7 +22,8 @@
                 <div class="role-title">
                     {% if job.recommended %}<span class="rec-star" {% if job.ai_reason %}title="AI: {{ job.ai_reason }}"{% endif %}>★ </span>{% endif %}
                     {% if job.url %}<a href="{{ job.url }}" target="_blank" rel="noopener">{{ job.title }}</a>{% else %}<span class="title-text">{{ job.title }}</span>{% endif %}
-                    {% if job._applied %}<span class="tag tag-applied" title="Applied — output folder: {{ job._applied }}">Applied</span>{% endif %}
+                    {% if job._applied %}<span class="tag tag-applied" title="Applied — output folder: {{ job._applied }}">Applied</span>
+                    {% elif job.viewed_at %}<span class="tag tag-viewed" title="You opened this posting">Viewed</span>{% endif %}
                     {% if job.url and 'linkedin.com' in job.url %}<span class="tag tag-linkedin">LinkedIn</span>
                     {% elif job.url and 'greenhouse.io' in job.url %}<span class="tag tag-gh">Greenhouse</span>
                     {% elif job.url and 'lever.co' in job.url %}<span class="tag tag-lever">Lever</span>

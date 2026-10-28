@@ -273,3 +273,11 @@ class TestFilteredCounts:
         store = self._make_store()
         fc = get_filtered_counts(store, time_range="today", search_term="python", tz_offset=0)
         assert fc["status"]["All"] == 1  # only a (python + today)
+
+
+def test_mark_viewed_sets_timestamp_on_matching_job():
+    from jobflow.linkedin_store import mark_viewed
+    store = {"jobs": {"https://www.linkedin.com/jobs/view/123": {"title": "SWE"}}}
+    assert mark_viewed(store, "https://www.linkedin.com/jobs/view/123?trk=x")
+    assert store["jobs"]["https://www.linkedin.com/jobs/view/123"]["viewed_at"]
+    assert not mark_viewed(store, "https://www.linkedin.com/jobs/view/999")

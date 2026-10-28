@@ -50,10 +50,12 @@
                     </div>
                     <div class="check-row">
                         <input type="checkbox" id="sched-score" checked>
-                        <label for="sched-score">Score new jobs <span class="why">AI-score what each scan finds</span></label>
+                        <label for="sched-score">Score new jobs <span class="why">AI-score anything unscored from the past week after each scan</span></label>
                     </div>
                     <div class="sched-status" id="sched-status" aria-live="polite">Scans now, then on every interval. Runs only while this tab stays open.</div>
                     <div class="sched-actions">
+                        <button class="btn btn-ghost btn-sm" id="sched-sources" onclick="toggleSourcesFromSched()"
+                                aria-controls="scan-sources">Show sources</button>
                         <button class="btn btn-primary btn-sm" id="sched-start" onclick="startSchedule()">Start schedule</button>
                         <button class="btn btn-danger btn-sm" id="sched-stop" onclick="stopSchedule()" style="display:none">Stop</button>
                     </div>
@@ -75,18 +77,26 @@
             <span class="k">Today</span>
             <span class="v" id="stat-today">{{ time_counts.get('today', 0) }}</span>
         </button>
-        <button class="stat" data-stat="rec" onclick="setFilter('status', 'Recommended')" title="High-confidence matches">
+        <button class="stat" data-stat="rec" onclick="setStatusTile('Recommended')" title="High-confidence matches found today">
+            <span class="stat-y"><span id="stat-rec-y">{{ day_counts.yesterday.Recommended }}</span> yesterday</span>
             <span class="k">Recommended</span>
-            <span class="v" id="stat-rec">{{ counts.get('Recommended', 0) }}</span>
+            <span class="v" id="stat-rec">{{ day_counts.today.Recommended }}</span>
         </button>
-        <button class="stat" data-stat="faang" onclick="setFilter('status', 'FAANG')" title="Well-paying companies with verified H-1B SWE sponsorship (big tech, quant, AI labs, fintech)">
+        <button class="stat" data-stat="faang" onclick="setStatusTile('FAANG')" title="Jobs found today at well-paying companies with verified H-1B SWE sponsorship (big tech, quant, AI labs, fintech)">
+            <span class="stat-y"><span id="stat-faang-y">{{ day_counts.yesterday.FAANG }}</span> yesterday</span>
             <span class="k">FAANG</span>
-            <span class="v" id="stat-faang">{{ counts.get('FAANG', 0) }}</span>
+            <span class="v" id="stat-faang">{{ day_counts.today.FAANG }}</span>
         </button>
         <button class="stat" data-stat="total" onclick="setTimeTile('')" title="All jobs in the store">
             <span class="k">All Jobs</span>
             <span class="v" id="stat-total">{{ counts.get('All', 0) }}</span>
         </button>
+        {% if applied_counts %}
+        <div class="stat stat-static" title="Application folders dated today (struck-through rows in the feed)">
+            <span class="k">Applied Today <span class="stat-sub">· <span id="stat-applied-total">{{ applied_counts.total }}</span> total</span></span>
+            <span class="v" id="stat-applied">{{ applied_counts.today }}</span>
+        </div>
+        {% endif %}
     </div>
 
     <!-- ── Toolbar: search + chips ── -->
@@ -317,6 +327,15 @@ function setTimeTile(val) {
     setTime(val);
 }
 
+/* Recommended / FAANG tiles count today's jobs, so they open on the Today tab
+   (the time tabs under them still switch to Yesterday / All Time). */
+function setStatusTile(status) {
+    document.getElementById('filter-level').value = '';
+    document.getElementById('filter-status').value = status;
+    syncChips();
+    setTime('today');
+}
+
 function toggleSort(col) {
     var sortInput = document.getElementById('filter-sort');
     var dirInput = document.getElementById('filter-dir');
@@ -465,9 +484,13 @@ function scanIsRunning() {
     return !!scanPollTimer || (btn && btn.disabled);
 }
 
-/* Resolves true when a scan was started (or one was already running). */
-function runScanWorkflow(btn) {
+/* Resolves true when a scan was started (or one was already running).
+   quiet: a scheduled scan — leave the Sources popover closed (it still opens
+   on hover, or from "Show sources" in the schedule panel). */
+var scanQuiet = false;
+function runScanWorkflow(btn, quiet) {
     if (btn.disabled) return Promise.resolve(false);   // guard against double-clicks
+    scanQuiet = !!quiet;
     scanBtnLoading(true, 'Triggering…');
     return fetch('/api/scan/workflow', {method: 'POST'}).then(function(r) {
         return r.json().then(function(data) { return {status: r.status, data: data}; });
@@ -476,7 +499,7 @@ function runScanWorkflow(btn) {
             showToast(res.data.mode === 'local'
                 ? 'Scanning all sources on this machine — this runs for a few minutes.'
                 : 'Scan started on GitHub Actions — this runs for a few minutes.');
-            setScanPanelOpen(true);
+            if (!scanQuiet) { sourcesOpenedManually = false; setScanPanelOpen(true); }
             scanBtnLoading(true, 'Scanning…');
             pollScanWorkflow();
             return true;
@@ -494,7 +517,7 @@ function runScanWorkflow(btn) {
 function pollScanWorkflow() {
     if (scanPollTimer) return;           // only one poller at a time
     scanBtnLoading(true, 'Scanning…');
-    setScanPanelOpen(true);
+    if (!scanQuiet) setScanPanelOpen(true);
     scanPollTimer = setInterval(function() {
         fetch('/api/scan/workflow/status').then(function(r) {
             return r.json();
@@ -505,7 +528,8 @@ function pollScanWorkflow() {
             scanPollTimer = null;
             scanBtnLoading(false);
             // Leave the final per-source tallies up briefly, then fold away.
-            scanPanelCloseTimer = setTimeout(function() { setScanPanelOpen(false); }, 8000);
+            if (!scanQuiet) scanPanelCloseTimer = setTimeout(function() { setScanPanelOpen(false); }, 8000);
+            scanQuiet = false;
             if (s.error) {
                 showToast('Scan: ' + s.error, 'error');
             } else if (s.conclusion === 'success') {
@@ -543,14 +567,34 @@ function toggleSchedPanel(force) {
     var open = typeof force === 'boolean' ? force : !panel.classList.contains('open');
     panel.classList.toggle('open', open);
     document.getElementById('sched-toggle').setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (open) {
+        document.getElementById('sched-sources').textContent =
+            document.getElementById('scan-sources').classList.contains('open') ? 'Hide sources' : 'Show sources';
+    }
+}
+var sourcesOpenedManually = false;
+function closeManualSources() {
+    if (!sourcesOpenedManually) return;
+    sourcesOpenedManually = false;
+    setScanPanelOpen(false);
 }
 document.addEventListener('click', function(e) {
     var wrap = document.querySelector('.scan-wrap');
-    if (wrap && !wrap.contains(e.target)) toggleSchedPanel(false);
+    if (wrap && !wrap.contains(e.target)) { toggleSchedPanel(false); closeManualSources(); }
 });
 document.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape') toggleSchedPanel(false);
+    if (e.key === 'Escape') { toggleSchedPanel(false); closeManualSources(); }
 });
+
+/* Open (or close) the Sources popover on demand — scheduled scans keep it shut. */
+function toggleSourcesFromSched() {
+    var panel = document.getElementById('scan-sources');
+    var open = !panel.classList.contains('open');
+    toggleSchedPanel(false);
+    if (open && !scanPollTimer) loadScanSources();   // while scanning, the poller keeps it live
+    sourcesOpenedManually = open;
+    setScanPanelOpen(open);
+}
 
 function fmtInterval(ms) {
     var mins = Math.round(ms / 60000);
@@ -603,7 +647,7 @@ function schedCheck() {
                       fmtCountdown(sched.nextAt - now) + '.');
         } else {
             var startedAt = now;
-            runScanWorkflow(document.getElementById('scan-btn')).then(function(started) {
+            runScanWorkflow(document.getElementById('scan-btn'), true).then(function(started) {
                 if (started && sched) schedScanStartedAt = startedAt;
             });
         }
@@ -613,15 +657,17 @@ function schedCheck() {
 
 /* Called by the scan poller when any scan ends. Only acts on scans the
    schedule started, and only scores after a successful one. */
+var AUTO_SCORE_CATCHUP_HOURS = 168;
 function onScheduledScanDone(success) {
     var startedAt = schedScanStartedAt;
     schedScanStartedAt = null;
     if (!sched || !startedAt || !success || !sched.score) return;
-    // Unscored jobs first seen since this scan began = what it just found.
-    var hours = ((Date.now() - startedAt) / 3600000 + 0.05).toFixed(3);
+    // Every unscored job from the past week, not just what this scan found:
+    // jobs from Scan Now, the GitHub cron, or a run that was skipped (scoring
+    // already busy) or failed would otherwise sit on the algorithm score.
     var body = new URLSearchParams();
     body.set('engine', _aiEngine);
-    body.set('hours', hours);
+    body.set('hours', String(AUTO_SCORE_CATCHUP_HOURS));
     body.set('limit', '0');
     body.set('rescore', 'false');
     fetch('/api/aiscore/trigger', {
@@ -901,6 +947,28 @@ function copyJobLink(btn) {
         showToast('Link copied');
     }).catch(function() { showToast('Failed to copy link', 'error'); });
 }
+/* Opening a posting (Apply or the title, incl. middle-click) tags the row "Viewed". */
+function markViewed(link) {
+    var row = link.closest('tr[data-key]');
+    if (!row || row.classList.contains('is-applied') || row.querySelector('.tag-viewed')) return;
+    var tag = document.createElement('span');
+    tag.className = 'tag tag-viewed';
+    tag.title = 'You opened this posting';
+    tag.textContent = 'Viewed';
+    var title = row.querySelector('.role-title > a');
+    if (title) title.insertAdjacentElement('afterend', tag);
+    fetch('/api/linkedin/viewed', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({key: row.dataset.key}), keepalive: true,
+    }).catch(function() {});
+}
+['click', 'auxclick'].forEach(function(type) {
+    document.addEventListener(type, function(e) {
+        if (e.type === 'auxclick' && e.button !== 1) return;
+        var link = e.target.closest('#linkedin-body .apply-btn, #linkedin-body .role-title > a');
+        if (link) markViewed(link);
+    });
+});
 function copySelectedJobs() {
     var urls = selectedJobRows().map(function(row) { return row.dataset.url || ''; }).filter(Boolean);
     if (!urls.length) { showToast('No selected jobs have links', 'error'); return; }
@@ -1000,11 +1068,19 @@ function applyFeedMeta(meta) {
         }
     });
 
-    // Stat tiles show all-time totals, so they don't shift with the time range.
+    // Stat tiles don't shift with the time range: Recommended / FAANG are
+    // today's counts (yesterday's underneath), All Jobs the all-time total.
     if (meta.stat_counts) {
         tweenStat(document.getElementById('stat-rec'), meta.stat_counts.Recommended || 0);
         tweenStat(document.getElementById('stat-faang'), meta.stat_counts.FAANG || 0);
+        document.getElementById('stat-rec-y').textContent = meta.stat_counts.RecommendedYesterday || 0;
+        document.getElementById('stat-faang-y').textContent = meta.stat_counts.FAANGYesterday || 0;
         tweenStat(document.getElementById('stat-total'), meta.stat_counts.All || 0);
+        var appliedEl = document.getElementById('stat-applied');
+        if (appliedEl && meta.stat_counts.AppliedToday !== undefined) {
+            tweenStat(appliedEl, meta.stat_counts.AppliedToday);
+            document.getElementById('stat-applied-total').textContent = meta.stat_counts.AppliedTotal;
+        }
     }
 
     var summaryEl = document.getElementById('li-summary');
@@ -1014,7 +1090,8 @@ function applyFeedMeta(meta) {
         var html_parts = '<b>' + meta.total + '</b> jobs';
         if (displayed < meta.total) html_parts += ' &middot; showing <b>' + displayed + '</b>';
         if (rec > 0) html_parts += ' &middot; <b>' + rec + '</b> recommended';
-        summaryEl.innerHTML = html_parts;
+        summaryEl.innerHTML = html_parts + '<span id="li-applied-summary"></span>';
+        updateAppliedSummary();
     }
 
     if (meta.time_counts) {
@@ -1030,6 +1107,14 @@ function applyFeedMeta(meta) {
         BUCKET_DATA = meta.buckets;
         renderBucketCards();
     }
+}
+
+/* Struck-through (applied) rows among the ones shown, appended to the summary. */
+function updateAppliedSummary() {
+    var el = document.getElementById('li-applied-summary');
+    if (!el) return;
+    var n = document.querySelectorAll('#linkedin-body tr.is-applied').length;
+    el.innerHTML = n ? ' &middot; <b>' + n + '</b> applied' : '';
 }
 
 function metaFromHeaders(resp) {
@@ -1100,6 +1185,7 @@ function triggerFilter(options) {
         if (seq !== _filterSeq) return;
         applyFeedMeta(payload.meta);
         document.getElementById('linkedin-body').innerHTML = payload.html;
+        updateAppliedSummary();
         formatRecency(document.getElementById('linkedin-body'));
         updateBulkSelectionState({restore: !!options.preserveSelection, sync: !options.preserveSelection, prune: !!options.preserveSelection});
         var updEl = document.getElementById('last-updated');

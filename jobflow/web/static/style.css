@@ -355,6 +355,16 @@ textarea { resize: vertical; min-height: 90px; line-height: 1.5; }
 .stat.active::after { transform: scaleX(1); }
 .stat .k { display: block; font-size: 0.73rem; font-weight: 500; color: var(--text-3); }
 .stat.active .k { color: var(--brass); }
+/* Read-only tile (Applied Today): no hover/click affordance. */
+.stat-static { cursor: default; }
+.stat-static:hover { background: transparent; }
+.stat-static .v { color: var(--brass); }
+.stat .stat-sub { color: var(--text-3); opacity: 0.8; font-weight: 400; }
+/* Yesterday's count under a today-only tile (Recommended / FAANG). */
+.stat .stat-y {
+    display: block; font-size: 0.68rem; color: var(--text-3); opacity: 0.8;
+    font-family: var(--font-data); font-variant-numeric: tabular-nums;
+}
 .stat .v {
     display: block; font-size: 1.55rem; font-weight: 500;
     font-family: var(--font-data); font-variant-numeric: tabular-nums;
@@ -545,6 +555,7 @@ tr.dismissing { animation: dismiss-out 0.26s ease forwards !important; }
 .tag-exp { background: none; padding: 0; color: var(--text-3); font-weight: 400; font-size: 0.73rem; }
 .tag-src { background: none; border: 1px solid var(--hairline-strong); color: var(--text-3); font-weight: 500; }
 .tag-applied { background: var(--brass-soft); color: var(--brass); text-decoration: none; }
+.tag-viewed { background: none; border: 1px solid var(--slate); color: var(--slate); }
 
 /* Applied (has a tailored-application folder): struck through, receded */
 .jobs-table tbody tr.is-applied .role-title a,

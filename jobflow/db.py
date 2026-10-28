@@ -235,6 +235,8 @@ def init_db():
             cur.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS ai_model TEXT")
             cur.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'linkedin'")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_jobs_source ON jobs (source)")
+            # When the user last opened the posting from the feed ("Viewed" tag).
+            cur.execute("ALTER TABLE user_job_state ADD COLUMN IF NOT EXISTS viewed_at TIMESTAMPTZ")
             cur.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
             cur.execute("""
                 CREATE INDEX IF NOT EXISTS idx_jobs_search_trgm
@@ -1057,6 +1059,26 @@ def update_job_status(url: str, status: str, user_id: int = DEFAULT_USER_ID) -> 
         put_conn(conn)
 
 
+def mark_viewed(url: str, user_id: int = DEFAULT_USER_ID) -> bool:
+    """Record that a user opened a job's posting from the feed."""
+    url = normalize_url(url)
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE user_job_state SET viewed_at = NOW() WHERE user_id = %s AND url = %s",
+                (user_id, url),
+            )
+            found = cur.rowcount > 0
+        conn.commit()
+        return found
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        put_conn(conn)
+
+
 def delete_job(url: str, user_id: int = DEFAULT_USER_ID) -> bool:
     """Dismiss a job for one user: remove their state row and remember the
     dismissal so it never re-fans-out to them. The shared posting stays for
@@ -1218,7 +1240,8 @@ def get_filtered_jobs(
         s.score_pct DESC
     """
 
-    sql = f"SELECT {_qualified_select()} FROM {_USER_JOBS_FROM} WHERE {where} ORDER BY {order}"
+    sql = (f"SELECT {_qualified_select()}, s.viewed_at FROM {_USER_JOBS_FROM} "
+           f"WHERE {where} ORDER BY {order}")
     if limit:
         sql += " LIMIT %s"
         params.append(limit)
@@ -1236,7 +1259,8 @@ def get_filtered_jobs(
 
     result = []
     for row in rows:
-        d = _row_to_dict(row, JOB_COLUMNS)
+        d = _row_to_dict(row[:-1], JOB_COLUMNS)
+        d["viewed_at"] = row[-1].isoformat() if row[-1] else None
         d["_key"] = d["url"]
         d["_recency"] = format_recency(d.get("first_seen", ""))
         result.append(d)
