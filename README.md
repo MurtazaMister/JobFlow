@@ -163,6 +163,7 @@ host vars always win over `.env`.
 | `JOBFLOW_OPERATOR_EMAIL` | Multi-user | The email bound to the operator account (`user_id=1`, inherits existing data). |
 | `ALLOWED_EMAILS` | Multi-user | Comma-separated allow-list of who may sign in. |
 | `JOBFLOW_CONFIG` | Deploy | Path to the YAML config (CI uses `config/config.ci.yaml`). |
+| `JOBRIGHT_COOKIE` | Jobright recommendations (local) | `Cookie` header from a signed-in jobright.ai browser session. |
 
 See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for a step-by-step Render + Google OAuth setup.
 
@@ -202,7 +203,8 @@ jobflow scan --platform greenhouse --hours 24 # one ATS platform
 ```
 
 **Sources:** LinkedIn (guest-API scraper, multiple search terms) · Lever · Greenhouse · Ashby ·
-GitHub aggregators (SimplifyJobs / Jobright). Company endpoints live in
+GitHub aggregators (SimplifyJobs / Jobright) · Jobright entry-level SWE sheet + your Jobright
+recommendations (`JOBRIGHT_COOKIE`). Company endpoints live in
 [config/job_boards.json](config/job_boards.json). New postings fan out to every active user's feed
 at merge time. See [docs/SCANNING.md](docs/SCANNING.md).
 

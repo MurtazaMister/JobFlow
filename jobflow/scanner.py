@@ -14,6 +14,7 @@ Platform differences:
     - Ashby:       REST API, JSON, ISO timestamps, no auth needed
     - LinkedIn:    guest API scraper (jobflow.linkedin_scraper), two-phase
     - GitHub:      Raw README table parsing (SimplifyJobs, SpeedyApply, Jobright repos)
+    - Jobright:    Entry-level SWE sheet (Airtable) + signed-in recommendations (jobflow.jobright)
 
 Deduplication (seen_jobs.json):
     Tracks previously seen job URLs with timestamps. Entries expire after
@@ -329,6 +330,14 @@ def scan_sources(config: dict, platforms: list[str] | None = None) -> list[dict]
                         "url": "https://app.notify.careers/postings",
                         "status": "pending" if has_creds else "unavailable",
                         "note": "" if has_creds else "Set NOTIFY_CAREERS_EMAIL / _PASSWORD in .env"})
+    if not platforms or "jobright" in platforms:
+        from .jobright import RECOMMEND_PAGE_URL, SHEET_PAGE_URL, cookie
+        sources.append({"key": "jobright_sheet", "label": "Jobright · Entry-level SWE sheet",
+                        "url": SHEET_PAGE_URL, "status": "pending", "note": ""})
+        sources.append({"key": "jobright_recommend", "label": "Jobright · My recommendations",
+                        "url": RECOMMEND_PAGE_URL,
+                        "status": "pending" if cookie() else "unavailable",
+                        "note": "" if cookie() else "Set JOBRIGHT_COOKIE in .env"})
     if not platforms or "instagram" in platforms:
         from .instagram_stories import DEFAULT_ACCOUNTS, missing_setup
         problem = missing_setup()
@@ -469,6 +478,42 @@ def scan_all_api_boards(
                     on_source("notify_careers", "done", count=len(jobs))
                 for job in jobs:
                     all_results.append((job, evaluate_job(job)))
+
+    # jobright.ai: the public entry-level SWE sheet (runs in CI too) and the
+    # signed-in recommendation feed (needs JOBRIGHT_COOKIE, so local-only and
+    # skipped quietly where it's absent, like notify.careers)
+    if not platforms or "jobright" in platforms:
+        from .jobright import (cookie, scan_jobright_recommendations,
+                               scan_jobright_sheet)
+        # Sheet rows only link to jobright's bot-checked job pages, so they keep
+        # the sheet's own fields; recommendations fetch JDs from apply_url.
+        from .jd_fetch import enrich_descriptions
+        feeds = [("jobright_sheet", "Jobright entry-level sheet",
+                  lambda: scan_jobright_sheet(max(max_age_hours, 24), title_filter=_is_swe_role))]
+        if cookie():
+            feeds.append(("jobright_recommend", "Jobright recommendations",
+                          scan_jobright_recommendations))
+        for key, label, scan in feeds:
+            console.print(f"\n[bold cyan]Scanning {label}...[/bold cyan]")
+            if on_source:
+                on_source(key, "running")
+            try:
+                jobs = scan()
+            except Exception as e:
+                console.print(f"  [red]{label} failed: {e}[/red]")
+                if on_source:
+                    on_source(key, "error", error=str(e))
+                continue
+            # Also skip jobs the sheet already returned this scan.
+            from .linkedin_store import normalize_url
+            known = _known_job_urls(config) | {normalize_url(j.url) for j, _ in all_results}
+            jobs = [j for j in jobs if normalize_url(j.url) not in known]
+            fetched, attempted = enrich_descriptions([j for j in jobs if j.apply_url])
+            console.print(f"  [green]{len(jobs)} new jobs, {fetched}/{attempted} descriptions fetched[/green]")
+            if on_source:
+                on_source(key, "done", count=len(jobs))
+            for job in jobs:
+                all_results.append((job, evaluate_job(job)))
 
     # Instagram job-drop stories (OCR + local Gemma, so local-only like
     # notify.careers; skipped quietly where the model/extras are absent)

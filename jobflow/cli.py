@@ -233,7 +233,7 @@ def save(
 
 @app.command()
 def scan(
-    platform: Optional[str] = typer.Option(None, "--platform", "-p", help="Scan specific platform(s), comma-separated: linkedin, github, notify, instagram"),
+    platform: Optional[str] = typer.Option(None, "--platform", "-p", help="Scan specific platform(s), comma-separated: linkedin, github, jobright, notify, instagram"),
     hours: int = typer.Option(0, "--hours", "-h", help="Only show jobs posted within this many hours (0 = all)"),
     new_only: bool = typer.Option(False, "--new", "-n", help="Only show jobs not seen in previous scans"),
     save_results: bool = typer.Option(True, "--save/--no-save", help="Save relevant jobs to scan_results.json"),

@@ -32,6 +32,7 @@ JobFlow/
 │   ├── applied.py           # Applied detection from tailored-application output folders
 │   ├── instagram_stories.py # @zero2sudo story drops: viewer sites → OCR → Gemma → search → posting
 │   ├── linkedin_scraper.py  # LinkedIn guest-API transport/parsing (429 backoff, pagination)
+│   ├── jobright.py          # jobright.ai: entry-level SWE sheet (Airtable) + signed-in recommendations
 │   ├── ai_prompt.py         # Shared scoring prompt + parse/normalize (used by all scorers)
 │   ├── ai_local.py          # Local scoring engines: gemma (default) / claude / codex CLI dispatch
 │   ├── ai_llama.py          # Local open-weight model (Gemma 4) via llama.cpp llama-server
@@ -123,6 +124,13 @@ news, Q&A are dropped) and extracts company/title/location/link domain. The link
 Greenhouse/Lever/Ashby board APIs, else `ddgs` web search + Gemma pick, guarded so career home pages
 don't pass. No Claude calls. Verdicts are cached per story id in git-ignored
 `data/instagram/stories.json`. Extras: `pip install -e .[instagram]`.
+
+## Jobright source
+`jobright.py` (`--platform jobright`): the public entry-level SWE sheet (an Airtable shared view
+embedded on jobright.ai/entry-level-jobs?k=swe; runs in CI) and the operator's jobright
+recommendations (`/swan/recommend/list/jobs`, filters saved on the jobright account; local-only,
+needs `JOBRIGHT_COOKIE` = a signed-in browser's Cookie header). Job URLs are
+`jobright.ai/jobs/info/<id>` so all jobright feeds dedupe. jobright.ai reposts are NOT blocklisted.
 
 ## Default filter criteria (operator profile)
 New grad / entry-level / SDE 1 · USA-based · must not deny sponsorship · OPT/F1 friendly · SWE

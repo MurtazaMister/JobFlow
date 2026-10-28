@@ -1065,10 +1065,10 @@ def _scan_mode(gh: str | None) -> str:
     return "github" if gh else "local"
 
 
-# Platforms the in-process Scan Now covers: the CI set plus notify.careers,
-# whose credentials only live in the local .env, and Instagram stories, which
+# Platforms the in-process Scan Now covers: the CI set plus notify.careers
+# and Jobright recommendations, whose credentials only live in the local .env, and Instagram stories, which
 # need the local OCR + Gemma model.
-LOCAL_SCAN_PLATFORMS = ["linkedin", "github", "notify", "instagram"]
+LOCAL_SCAN_PLATFORMS = ["linkedin", "github", "jobright", "notify", "instagram"]
 
 
 def _scan_sources_view(config):

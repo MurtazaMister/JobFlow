@@ -38,6 +38,8 @@ def _get(url: str, headers: dict = _HTML_HEADERS) -> str | None:
     try:
         req = urllib.request.Request(url, headers=headers)
         with urllib.request.urlopen(req, timeout=TIMEOUT_S, context=_SSL_CTX) as resp:
+            if "/_jr/security/challenge" in resp.geturl():
+                return None   # jobright.ai bot check, not the posting
             return resp.read(3_000_000).decode("utf-8", errors="replace")
     except Exception:
         return None
@@ -209,14 +211,14 @@ def enrich_descriptions(jobs, max_fetches: int = 400, time_budget_s: float = 150
     blow the CI timeout; unfetched jobs keep their title-only description and
     are retried next scan. Returns (fetched, attempted).
     """
-    todo = [j for j in jobs if j.url][:max_fetches]
+    todo = [j for j in jobs if j.apply_url or j.url][:max_fetches]
     if not todo:
         return 0, 0
     deadline = time.monotonic() + time_budget_s
     fetched = attempted = 0
     pool = ThreadPoolExecutor(max_workers=workers)
     try:
-        futures = {pool.submit(fetch_jd, j.url): j for j in todo}
+        futures = {pool.submit(fetch_jd, j.apply_url or j.url): j for j in todo}
         for fut in as_completed(futures):
             attempted += 1
             try:

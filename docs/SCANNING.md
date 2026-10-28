@@ -88,6 +88,26 @@ Parses markdown tables from new-grad aggregator repos:
 - [SimplifyJobs/New-Grad-Positions](https://github.com/SimplifyJobs/New-Grad-Positions)
 - [Jobright-AI/2025-New-Grad-Intern](https://github.com/Jobright-AI/2025-New-Grad-Intern)
 
+### Jobright (`--platform jobright`)
+
+**File**: `jobflow/jobright.py`
+
+- **Entry-level SWE sheet** — [jobright.ai/entry-level-jobs?k=swe](https://jobright.ai/entry-level-jobs?k=swe)
+  embeds an Airtable shared view (~a week of entry-level SWE postings, updated hourly). The scanner
+  reads the embed page's signed `readSharedViewData` URL and keeps rows dated today or yesterday
+  (the sheet has dates only) whose title passes the SWE pre-filter. No login, so it runs in CI.
+- **My recommendations** — `jobright.ai/jobs/recommend` via the signed-in `/swan/recommend/list/jobs`
+  API. What it returns is set by the filters saved on the jobright account (job functions,
+  Intern/New Grad + Entry Level, past 24 hours, US, H-1B only, no clearance / US-citizen-only /
+  staffing agencies), so edit them on jobright. Needs `JOBRIGHT_COOKIE` in `.env`: the whole `Cookie`
+  request header from a signed-in browser (DevTools → Network → any `/swan/` request). Local-only;
+  skipped quietly without it. A 401 means the session expired: copy a fresh header.
+
+Both use `jobright.ai/jobs/info/<id>` as the job URL, so the same posting from the sheet, the
+recommendations, and the Jobright GitHub README collapses onto one row. Those pages sit behind a bot
+check that trips after a handful of fetches, so they are never scraped: recommendations fetch JDs from
+the employer's apply link (`JobPosting.apply_url`), and sheet rows keep the sheet's own fields.
+
 ## Pre-filters (Title-level)
 
 Before full scoring, jobs are pre-filtered by title:
@@ -136,7 +156,7 @@ Steps:
 1. Checkout repo + git pull (latest JSON store)
 2. Setup Python 3.12
 3. pip install -e .
-4. JOBFLOW_CONFIG=config/config.ci.yaml jobflow scan --platform linkedin --save --hours 4
+4. JOBFLOW_CONFIG=config/config.ci.yaml jobflow scan --platform linkedin,github,jobright --save --hours 4
 5. Merge scan_results.json into Postgres (fan-out per user) and linkedin_jobs.json
 6. git add data/ci/ && git commit && git push
 ```

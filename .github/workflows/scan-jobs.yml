@@ -43,7 +43,7 @@ jobs:
           # Ephemeral per-run output — prevents stale top-500 cache from
           # evicting fresh jobs and blocking DB inserts.
           rm -f data/ci/scan_results.json
-          jobflow scan --platform linkedin,github --save --hours 4 2>&1 || true
+          jobflow scan --platform linkedin,github,jobright --save --hours 4 2>&1 || true
           echo "Scan finished at $(date -u)"
 
       - name: Merge into database
